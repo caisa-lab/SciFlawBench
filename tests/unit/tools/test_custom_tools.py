@@ -1,3 +1,7 @@
+import sys
+
+import pytest
+
 from tools.misc import CalculatorTool
 
 
@@ -25,6 +29,7 @@ def test_cpu_timeout():  # try to overrun cpu time
     assert result.startswith("Error:")
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="macOS rejects the RLIMIT_AS memory cap, so it is not enforced")
 def test_memory_exhaustion():  # try to overrun memory
     calc = CalculatorTool()
 
