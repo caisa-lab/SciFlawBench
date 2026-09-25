@@ -94,3 +94,24 @@ def test_basic_json_ouptut():
     assert not result.passed
 
 
+
+
+def test_non_string_outputs_are_graded():
+    # a code agent may hand back a python object rather than text, e.g. final_answer((2.7, 3.2))
+    numeric = verifier_registry.get("content:numeric_match")
+
+    result = run_check(numeric, (2.7, 3.2), expected="3.2", tol=0.05, index=1)
+    assert result.passed
+
+    result = run_check(numeric, (3.1, 2.8), expected="2.7", tol=0.05, index=0)
+    assert not result.passed
+    assert "Got value: 3.1" in result.details
+
+    result = run_check(numeric, 2.7, expected="2.7", tol=0.0)
+    assert result.passed
+
+    result = run_check(numeric, [2.7, 3.2], expected="2.7", tol=0.0, index=0)
+    assert result.passed
+
+    result = run_check(verifier_registry.get("format:json_output"), {"papers": []})
+    assert result.passed
