@@ -18,6 +18,13 @@ tool_registry = Registry("Tool")
 logger = logging.getLogger()
 
 
+WEB_TOOL_NAMES = {
+    "web_search",
+    "visit_webpage",
+    "wikipedia_search",
+    "arxiv_search",
+}
+
 @tool_registry.register("web_search")
 def make_web_search_tool(
     watcher, max_results: int = 8, rate_limit: float = 1.0, engine: str = "duckduckgo"

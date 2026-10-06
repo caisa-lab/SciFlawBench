@@ -40,6 +40,7 @@ class TaskDef(BaseModel):
     agent_id: str
     extra_tools: list[ToolDef | str] = Field(default_factory=list)  # TODO: why allow strings?
     validators: list[VerifierDef] = Field(default_factory=list)
+    closed_book: bool = False  # for the individual task flag
 
     repetition: int = 1  # for multiple runs of the same tasks
 
@@ -112,9 +113,17 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
     signal.signal(signal.SIGTERM, handle_sigterm)
 
     tool_overrides = {t.tool_name: t for t in run_config.tool_configs}
+    is_closed_book = run_config.closed_book or task.closed_book
 
     try:
-        built_agent = build_agent(task.agent_id, model_conf, watcher, tool_overrides, task.extra_tools)
+        built_agent = build_agent(
+            task.agent_id,
+            model_conf,
+            watcher,
+            tool_overrides,
+            task.extra_tools,
+            closed_book=is_closed_book
+        )
         out = built_agent.watcher("agent", built_agent.definition.name, built_agent.agent.run, task.task)
         success = True
         error_str = ""

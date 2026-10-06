@@ -58,6 +58,7 @@ class RunConfig(BaseModel):
     tool_configs: list[ToolDef] = Field(default_factory=list)
     log_path: Path = Path("logs/")
     max_concurrent: int = 3  # default max concurrent task running processes
+    closed_book: bool = False
 
     repetitions_per_task: int = 3
     logging_level: int = 20
