@@ -24,6 +24,10 @@ class ModelConfig(BaseModel):
     # this is kept in the model config because it generally is a model dependant field to be configured
     code_block_tags: tuple[str, str] | None = None
 
+    # set to False for models that reject the `stop` parameter but are missing from smolagents' hard-coded list
+    # (o3, o4, gpt-5*, grok-*); None leaves the decision to smolagents
+    supports_stop: bool | None = None
+
     _api_key: str = PrivateAttr()
 
     @model_validator(mode="after")
