@@ -15,7 +15,8 @@ def test_run_task_with_real_openrouter_ai_agent(tmp_path):
     task_file.write_text("""{
         "task_id": 1,
         "task": "What year was the Eiffel Tower completed, and who was the chief engineer credited with the project?",
-        "agent_id": "code_agent"
+        "agent_id": "code_agent",
+        "failure_modes": {"quantitative": ["correctness"]}
     }""")
 
     conf = RunConfig(

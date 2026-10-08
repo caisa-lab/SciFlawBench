@@ -1,8 +1,10 @@
 import json
+import math
 import re
 
 from core.registry import Registry
-from evaluation.base import VerificationResult
+from evaluation.base import VerificationResult, VerifierContext
+from evaluation.judge import JudgeReplyError
 
 verifier_registry = Registry("verifiers")
 
@@ -27,16 +29,22 @@ def single_numeric_match(got: str, expected: str, tol: float = 0.0, index: int =
     try:
         got_val = float(matches[index])
     except IndexError:
-        return VerificationResult(passed=False, details=f"Index {index} out of range for expected: {expected} and \
-                                  received strings: {got}")
+        return VerificationResult(
+            passed=False,
+            details=f"Index {index} out of range for expected: {expected} and \
+                                  received strings: {got}",
+        )
     try:
         expected_val = float(expected)
     except ValueError:
         return VerificationResult(passed=False, details=f"Expected value: {expected} is not a numeric type")
 
     passed = abs(got_val - expected_val) <= tol
-    return VerificationResult(passed=passed, details=f"Expected value: {expected_val} Got value: {got_val} diff \
-            {abs(got_val - expected_val)} and tol: {tol}")
+    return VerificationResult(
+        passed=passed,
+        details=f"Expected value: {expected_val} Got value: {got_val} diff \
+            {abs(got_val - expected_val)} and tol: {tol}",
+    )
 
 
 @verifier_registry.register("content:numeric_within_range")
@@ -77,9 +85,6 @@ def paper_list_match(
     return VerificationResult(passed=passed, details=f"matched {len(matched)}/{len(expected_ids)} expected papers")
 
 
-import math
-
-
 _SCI_RE = re.compile(
     r"""
     (?<![\w.])                          # not preceded by a word char or dot (avoid grabbing mid-number/mid-identifier)
@@ -108,6 +113,7 @@ def _extract_scientific_values(text: str) -> list[float]:
         exp = m.group("exp1") or m.group("exp2")
         values.append(coeff * (10 ** int(exp)))
     return values
+
 
 def _round_sig_figs(x: float, sig: int) -> float:
     if x == 0:
@@ -155,10 +161,11 @@ def scientific_notation_numeric(
 
     return VerificationResult(passed=passed, details=details)
 
+
 @verifier_registry.register("content:json_output")
 def verify_json_content(got: str, expected: dict) -> VerificationResult:
 
-    try: 
+    try:
         got_json = json.loads(got)
     except json.JSONDecodeError as e:
         return VerificationResult(passed=False, details=f"Failed to parse got: {got} \n as json: \n{str(e)}")
@@ -167,9 +174,11 @@ def verify_json_content(got: str, expected: dict) -> VerificationResult:
         if field not in got_json:
             return VerificationResult(passed=False, details=f"got: {got}, but expected field {field} is not included")
         if value != got_json[field]:
-            return VerificationResult(passed=False, 
-            details=f"got: {got}, but field {field} does not match expectation:{value}")
+            return VerificationResult(
+                passed=False, details=f"got: {got}, but field {field} does not match expectation:{value}"
+            )
     return VerificationResult(passed=True, details="Received Valid Json and the expected fields match in value")
+
 
 @verifier_registry.register("format:json_output")
 def json_output(got: str) -> VerificationResult:
@@ -178,3 +187,54 @@ def json_output(got: str) -> VerificationResult:
     except json.JSONDecodeError as e:
         return VerificationResult(passed=False, details=f"Failed to parse as json: {e}")
     return VerificationResult(passed=True, details="Valid Json provided")
+
+
+@verifier_registry.register("judge:rubric")
+def judge_rubric(got: str, rubric: str, context: VerifierContext) -> VerificationResult:
+    """
+    Grade the whole run with an LLM judge: does the trace satisfy `rubric`?
+
+    The judge is a LiteLLM-served model configured through the run config's `judge` section; it
+    is sent the rubric, the run's trace and a hardcoded output specification, and must reply
+    with a JSON object holding `evaluation` (the score) and `justification`. Both end up in the
+    check's metadata, so every judged run records why it was passed or failed.
+
+    Args:
+        got (str): the agent's final answer (not sent to the judge on its own; it is part of the trace)
+        rubric (str): the question the judge has to answer about the trace
+        context (VerifierContext): supplies the trace and the configured judge client
+
+    Returns (VerificationResult): the judge's verdict, with its justification attached
+    """
+    if context is None or context.judge is None:
+        reason = context.judge_error if context is not None and context.judge_error else "no judge model is configured"
+        return VerificationResult(
+            passed=False,
+            details=f"LLM judge unavailable: {reason}. Add a 'judge' section to the run config to use judge:rubric.",
+            metadata={"rubric": rubric},
+        )
+
+    judge_model = getattr(context.judge, "model_id", "unknown")
+    metadata = {"rubric": rubric, "judge_model": judge_model}
+
+    try:
+        verdict = context.judge.judge(rubric, context.trace)
+    except JudgeReplyError as exc:
+        return VerificationResult(
+            passed=False,
+            details=f"LLM judge ({judge_model}) reply did not follow the required format: {exc}",
+            metadata=metadata,
+        )
+    except Exception as exc:
+        return VerificationResult(
+            passed=False,
+            details=f"LLM judge ({judge_model}) call failed: {type(exc).__name__}: {exc}",
+            metadata=metadata,
+        )
+
+    return VerificationResult(
+        passed=verdict.passed,
+        details=f"LLM judge ({judge_model}) {'passed' if verdict.passed else 'failed'}: {verdict.justification}",
+        justification=verdict.justification,
+        metadata=metadata,
+    )

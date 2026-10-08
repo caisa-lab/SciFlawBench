@@ -100,23 +100,35 @@ def get_preview(tool, text):
         preview = f"**Snippet**\n> {first_lines}...\n\n"
 
     details = (
-        f"<details>\n"
-        f"<summary>Click to expand output ({tool})</summary>\n\n"
-        f"```text\n{preview}\n```\n\n"
-        f"</details>\n"
+        f"<details>\n<summary>Click to expand output ({tool})</summary>\n\n```text\n{preview}\n```\n\n</details>\n"
     )
 
     return f"{preview}{details}"
 
 
-def save_markdown_report(data: dict[str, Any], output_path: Path):
+def render_trace_markdown(data: dict[str, Any]) -> str:
+    """
+    Render a run's trace as markdown.
 
+    Used both for the per-task trace reports and as the trace handed to the LLM judge, so the
+    two always agree on what a trace looks like. When `check_results` is absent from `data`
+    (which is the case while the run is still being verified) the validation line is omitted
+    rather than printing a misleading "None".
+
+    Args:
+        data (dict): a task result dict (task_id, task, output, success, full_trace, ...)
+
+    Returns (str): the markdown report
+    """
     # Top summary section
     trace, tokens, duration = extract_concise_trace(data.get("full_trace", []))
     status = "Passed" if data.get("success") else "Failed"
     token_str = f"in {tokens['input_tokens']:,} | out {tokens['output_tokens']:,}"
-    checks = data.get("check_results") or []
-    validation_str = checks[0].get("details", "None") if checks else "None"
+    checks = data.get("check_results")
+    validation_lines = []
+    if checks is not None:
+        validation_str = checks[0].get("details", "None") if checks else "None"
+        validation_lines = [f"**Validation:** {validation_str}\n"]
     diagram_block = mermaid_schema(trace, status)
     legend = " | ".join(f"{icon} {name}" for name, icon in TOOL_ICONS.items())
 
@@ -127,7 +139,7 @@ def save_markdown_report(data: dict[str, Any], output_path: Path):
         f"**Status:** {status}&emsp;&emsp;&emsp;",
         f"**Duration:** {duration:.2f}&emsp;&emsp;&emsp;",
         f"**Tokens:** {token_str}\n",
-        f"**Validation:** {validation_str}\n",
+        *validation_lines,
         "\n---\n",
         "## Execution Trace\n",
         f"**Legend:** 💭 Thought | {legend}\n",
@@ -157,8 +169,13 @@ def save_markdown_report(data: dict[str, Any], output_path: Path):
             result = step.get("result", "")
             output_section = f"**Output:** `{result}`\n" if tool == "calculator" else get_preview(tool, result)
 
-            block = f"\n> **Tool Call:** `{tool}`\n\n" f">`{inputs}`\n\n" f"{output_section}"
+            block = f"\n> **Tool Call:** `{tool}`\n\n>`{inputs}`\n\n{output_section}"
             md_lines.append(block)
 
+    return "\n".join(md_lines)
+
+
+def save_markdown_report(data: dict[str, Any], output_path: Path):
+    """Write the markdown trace report for one run to `output_path`."""
     with open(output_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(md_lines))
+        f.write(render_trace_markdown(data))

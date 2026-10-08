@@ -8,7 +8,7 @@ from core.config import ModelConfig
 from core.events import EventWatcher
 from models.base import build_model
 from tools.base import ToolDef, resolve_tools
-from tools.definitions import tool_registry, WEB_TOOL_NAMES
+from tools.definitions import CLOSED_BOOK_ALLOWED_TOOLS, tool_registry
 
 
 @dataclass
@@ -51,7 +51,7 @@ def build_agent(
 
     all_tools = overrides + [t if isinstance(t, ToolDef) else ToolDef(tool_name=t) for t in extra_tools]
     if closed_book:
-        all_tools = [t for t in all_tools if t.tool_name not in WEB_TOOL_NAMES]
+        all_tools = [t for t in all_tools if t.tool_name in CLOSED_BOOK_ALLOWED_TOOLS]
     tools = [tool_registry.create(t.tool_name, watcher=watcher, **t.kwargs) for t in all_tools]
 
     # TODO: for indentations, we can also use pre-commit with black, I can set that up

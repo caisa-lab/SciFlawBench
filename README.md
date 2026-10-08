@@ -1,9 +1,32 @@
+<div align="center">
+
 # SciFlawBench Harness
 
-## descriptions
-This repository is mean to be a harness from which to run the sciflaw benchmark for models within an agentic context at the university of Bonn. It is built on top of smolagents and has a multiprocess architechture to allow for **blazingly** fast running of the benchmark
+**🔬 An agentic benchmark for measuring whether AI agents can reliably complete real scientific tasks. 🔭**
 
-## code repository overview
+</div>
+
+---
+
+## What is SciFlawBench?
+
+SciFlawBench measures whether AI agents can reliably complete **real scientific tasks** — data analysis, literature synthesis, experimental design, computational modelling, lab-protocol execution — while operating with tools: web search, arXiv and Wikipedia lookup, webpage visiting, a sandboxed
+Python interpreter and local file readers.
+
+What separates it from a general capability benchmark is the **flaw** framing. Every item is written by a practising scientist and built so that a plausible-looking agent fails in a specific, diagnosable way. Each item is labelled with the **failure modes** it probes, catalogued in [`docs/failure-modes.md`](docs/failure-modes.md).
+
+### How a run works
+
+```
+task file (.jsonl) -> one process per task -> agent + tools -> verifiers -> results + scores
+```
+
+Each task runs in its own process under a wall-clock timeout and writes its own result file. Verifiers grade either the final answer (deterministic
+checks) or the whole run trace (an LLM judge), and the harness aggregates every recorded run into the overall and per-failure-mode scores — see [Scoring](#scoring).
+
+## Repository overview
+
+### Source
 
 ```
 src/
@@ -12,147 +35,206 @@ src/
 │   ├── events.py               # defines event watchers and base event primitives
 │   ├── manager.py              # runtime manager code that handles dispatching subprocesses
 │   ├── registry.py             # registry code which is reused for agent and tool registry (handles mapping string -> obj factory)
-│   └── tasks.py                # definition for task primiteves and contains teh run_task function used for actual task runs
+│   └── tasks.py                # task primitives and the run_task function used to execute a task
 ├── agents/
 │   ├── prompts/
 │   │   ├── code_agent.yaml        # default prompt associated with coding agent
 │   │   └── tool_agent.yaml        # default prompt associated with tool calling agent
-│   ├── prompts.py              # right now just containes a load prompt file
+│   ├── prompts.py              # loads the prompt templates
 │   ├── definitions.py          # definitions of base agents to be used in testing and agent registry
-│   └── base.py                 # contains build_agent function
+│   └── base.py                 # contains the build_agent function
 ├── evaluation/
-│   ├── print_report.py         # contains logic pertaining to converting reports into markdown
+│   ├── print_report.py         # renders run traces and results as Markdown reports
 │   ├── definitions.py          # definitions of verifiers and the verifier registry
+│   ├── judge.py                # LLM-as-a-judge client, judge prompt and reply parsing
+│   ├── scoring.py              # failure-mode taxonomy and overall/per-mode score aggregation
 │   └── base.py                 # defines basic necessary structures for validation code
 ├── models/
 │   └── base.py                 # defines how to build a model and model wrapper
 ├── tools/
 │   ├── misc.py                 # miscellaneous custom tool classes that get registered
-│   ├── definitions.py          # all custom tool definitions and wrapper/registry definiotion for use in pipeline
+│   ├── definitions.py          # tool definitions and the tool registry
 │   ├── searchtools.py          # contains the searchtools available to the agents: (arxiv, SerpAPI, wikipedia)
-│   └── base.py                 # containes wrapper for use on all tools
-└── main.py                     # main entrypoint for running testing harness
+│   └── base.py                 # the wrapper used by every tool
+└── main.py                     # CLI entry point for running the harness
 ```
 
-## How to use
+### Data
 
-### Installation
+All benchmark data (task files and the local files tasks depend on) lives under `data/`:
+
+```
+data/
+├── example/      # self-contained example tasks.jsonl for demos, smoke tests and quick runs
+└── tasks/        # the official SciFlawBench task sets, versioned over time
+    ├── v0/       # version 0 of the official task set
+    └── assets/   # one folder per task id, holding that task's local files
+```
+
+See [`data/README.md`](data/README.md) for the full description.
+
+### Examples
+
+A ready-to-edit run configuration lives under `examples/`:
+
+```
+examples/
+├── config.json   # a minimal run configuration (model + task file)
+└── README.md     # reference for every config key and runner flag
+```
+
+Start from [`examples/config.json`](examples/config.json), and see [`examples/README.md`](examples/README.md) for the full argument reference.
+
+### Authoring helpers
+
+```
+utils/
+└── build_task.ipynb   # fill in one submitted item and append it to a task file as a JSONL line
+```
+
+[`utils/build_task.ipynb`](utils/build_task.ipynb) turns one submitted item into a task line: fill in the fields and it validates the item, computes the `task_id`, and appends it to a task file. See [`docs/task-authoring.md`](docs/task-authoring.md#5-from-submission-to-harness-task).
+
+## Requirements
+
+- **Python >= 3.12**
+- API credentials for at least one model provider (LiteLLM covers most hosted providers), or a local OpenAI-compatible server
+
+## Installation
 
 ### Installing through pip
-1. clone the repository and cd in
+
 ```bash
-git clone git@github.com:ivzx04/SciFlawBenchHarness.git && cd SciFlawBenchHarness
-```
-2. Create a virtual environment for this project and enter the environment (optional)
-```bash
-python -m venv <name-of-your-venv>  && source <name-of-your-venv>/bin/activate
-```
-3. pip install the enviornment and dependencies
-```bash
-pip install .
+git clone https://github.com/caisa-lab/SciFlawBenchHarness.git && cd SciFlawBenchHarness
+python -m venv .venv && source .venv/bin/activate   # optional, but recommended
+pip install .                                       # add -e for an editable install
 ```
 
 ### Installing with uv
-1. clone the repository and cd in
+
 ```bash
-git clone git@github.com:ivzx04/SciFlawBenchHarness.git && cd SciFlawBenchHarness
-```
-2. install the required packages
-```bash
-uv sync
-```
-respectively as a developer run
-```bash
-uv sync --all-extras
-pre-commit install
+git clone https://github.com/caisa-lab/SciFlawBenchHarness.git && cd SciFlawBenchHarness
+uv sync                                             # runtime dependencies
+uv sync --all-extras && pre-commit install          # developer setup: dev tools + git hooks
 ```
 
-### Configuring the benchmark
-1. Write the config file in config.json with your specific model access credentials/settings
+Developer setup (test suite, linting, git hooks) is described in [`CONTRIBUTING.md`](CONTRIBUTING.md#developer-setup).
 
-     - The config struct roughly corresponds to the following:
-        a. Configurations for the entire run
+## Quick start
 
-        ```python
-        class RunConfig(BaseModel):
-            """
-            class which stores all the information needed to provision a benchmark run (also gets read from the config)
-            """
-            model: ModelConfig
-            task_file: Path
-            tool_configs: list[ToolDef] = Field(default_factory=list)
-            log_path: Path = Path("logs/")
-            max_concurrent: int = 4         # default max concurrent task running processes
+Every run argument lives in a single JSON file. A minimal configuration only needs to choose a model and a task file:
 
-            repititions_per_task: int=3
-            logging_level: int = 20
-            task_timeout_s: int = 60 * 15 # 15 minute timeout for tasks before they get killed by the runtime manager
-            restarting: bool | None = None  # if you want to restearting on a specific dir specify the path and set to True
-        ```
-
-        b. Configurations for the Model
-
-        ```python
-
-        class ModelConfig(BaseModel):
-            """
-            class which stores all the information needed to provision a model (gets read from the config)
-
-            also acts as a typing mechanism thoruhg pydantic to verify things were correctly specified
-            """
-            provider: Literal["litellm", "openai_server", "hf_api", "fake_model"]
-            model_id: str
-            api_key_env: str
-            api_base: str | None = None
-            extra_kwargs: dict = Field(default_factory=dict)
-
-            # this is kept in the model config because it generally is a model dependant field to be configured
-            code_block_tags: tuple[str,str] | None = None
-
-            _api_key: str = PrivateAttr() # populated via environment using api_key_env
-        ```
-
-        c. Tool definitions that modify base tool behaviour for the entire run (kwargs vary by tool, passed in through the tool_configs in [1]):
-        ```python
-        class ToolDef(BaseModel):
-            tool_name: str
-            kwargs: dict = Field(default_factory=dict)
-        ```
-
-    - tool overrides modify the behaviour of the tool for the entirety of the run for all agents
-    - all of these BaseModel classes correspond directly to writeable json which should hopefully help for understanding how things can be expressed
-
-2. export the api key environment variables associated with your model providers
-
-3. run src/main.py with your config path
-```bash
-python src/main.py --config /path/to/your/config
+```json
+{
+  "model": {
+    "provider": "litellm",
+    "model_id": "openrouter/qwen/qwen3.7-flash",
+    "api_key_env": "OPENROUTER_API_KEY"
+  },
+  "task_file": "data/example/tasks.jsonl"
+}
 ```
 
-4. (hint) You can see all the configurations for your run without actually running the benchmark by using the --dry flag
+[`examples/README.md`](examples/README.md) is the full reference: every key accepted in the config file (run settings, model settings, per-tool overrides), the registered tools and their options, the environment variables the harness reads, and every runner flag.
 
+1. Copy and edit the example config ([`examples/config.json`](examples/config.json)) with your
+   model access settings and task file.
 
-## Check out our Google Colab from which you can run this as well
+2. Export the API key environment variable named by `api_key_env` (or put it in a `.env` file,
+   which is loaded automatically).
 
-https://colab.research.google.com/drive/1ctDfb7he22O-ipqqhIxSmfM40fEOTWXI?usp=sharing
+3. Run the harness with your config path:
 
-## FAQ
+```bash
+python src/main.py --config my-run.json
+```
 
-1. how do I define a test task to try and run?
+4. Useful runner flags:
 
-    For an arbitrary task one only needs to define 3 fields for the harness to run:
-        "task_id": int
-        "task": str
-        "agent_id": Literal_string["code_agent", "tool_agent"]
+```bash
+python src/main.py --config my-run.json --dry          # print the resolved config and exit
+python src/main.py --config my-run.json --show_trace   # per-task markdown trace reports
+python src/main.py --config my-run.json --closed_book  # closed-book mode: the agent gets no tools
+```
 
-2. What provider should i use for a given model / how should i configure my settings for this ?
+Run `python src/main.py --help` for the complete list.
 
-    This largely depends on what kind of API you are hitting where the model is hosted. The most standard provider type
-    is the openai_server, which is compatible with many sorts of providers including openai itself, vllm, etc.
+## Scoring
 
-    Currently this code base supports two other types of providers as well, those being litellm and huggingfaces own api.
+Each task is scored by the fraction of its validators that pass: `1.0` when every check passes, `0.0` when none do, and a task with no checks at all has no score. At the end of a run the harness aggregates those task scores into `scores.json` and appends a matching block to `run_summary.log`:
 
-    Almost all configuration options for these specific providers are documented at the following link:
-    https://deepwiki.com/huggingface/smolagents/4.2-api-based-models
+- an **overall** score — the mean task score across every recorded run;
+- a **per failure mode** score for every mode the tasks declare in their `failure_modes` field, measured only over the tasks that declare that mode; and
+- a score for each **family** (`quantitative`, `qualitative`).
 
-    and can be specified via the extra_kwargs section in the model config.
+Runs killed or crashed before verification (no checks) are counted but excluded from the scores. The failure-mode taxonomy itself is documented in [`docs/failure-modes.md`](docs/failure-modes.md).
+
+## Reproducibility and Resuming
+
+Every run records an immutable manifest next to its logs, and an interrupted run can be resumed only while that manifest still matches the current configuration.
+
+### The run directory
+
+```
+logs/<timestamp>/            # the `log_path` itself when `restarting` is set
+├── run_manifest.json        # immutable record of everything that shapes the run
+├── run_manifest.sha256      # checksum of the manifest above
+├── aggregate_results.jsonl  # one line per finished run (each links to the manifest sha)
+├── run_summary.log          # human-readable progress log (ends with the score block)
+├── scores.json              # overall, per-family and per-failure-mode scores
+└── results/                 # per-task results: one file per task id, one line per repetition
+```
+
+The manifest captures the task set (file and content hashes), the local assets it depends on, the agent prompt templates, the model configuration, the tool configuration, the judge configuration (for runs whose tasks are graded by an LLM judge), the budget (repetitions, timeout) and environment provenance (git revision, dependency versions, platform).
+
+### Resuming an interrupted run
+
+Point `log_path` at the interrupted run's directory and set `restarting` to `true`:
+
+```json
+{
+  "log_path": "logs/<timestamp>",
+  "restarting": true
+}
+```
+
+Repetitions already recorded under `results/` are skipped and everything else is re-run. Before that, the harness recomputes this run's *signature* and compares it with the manifest. If anything that affects results has changed — the task set, the local assets, the prompts, the model or tool configuration, the budget — the run is **refused**:
+
+```
+Refusing to resume: the checkpoint does not match this run.
+   - run signature differs from the manifest (changed: task_set_sha256).
+```
+
+Set `NO_REPRODUCIBILITY_GUARANTEES=true` to downgrade those checks to warnings, e.g. when you knowingly want to continue after changing something (the resulting numbers are then no longer directly comparable). A checkpoint that holds results but no manifest cannot be verified and is refused for the same reason — rerunning from scratch is the safe option.
+
+## Contributing
+
+The project grows along two tracks:
+
+| Track | Who it is for | Where it starts |
+| ----- | ------------- | --------------- |
+| **1. Benchmark items** — scientific tasks with a ground truth and failure-mode labels | Practising scientists | [`CONTRIBUTING.md`](CONTRIBUTING.md) Track 1 · [`docs/task-authoring.md`](docs/task-authoring.md) |
+| **2. Harness code** — the runner, tools, verifiers and scoring under `src/` | Software engineers | [`CONTRIBUTING.md`](CONTRIBUTING.md) Track 2 |
+
+Items are submitted through two Google Forms (annotator registration, then task submission); both are linked in [`docs/task-authoring.md`](docs/task-authoring.md#4-how-to-submit), together with the rules an item must satisfy.
+
+## Where to read more
+
+| Document | What it covers |
+| -------- | -------------- |
+| [`examples/README.md`](examples/README.md) | every configuration key, every runner flag, tool overrides, environment variables and judge settings |
+| [`data/README.md`](data/README.md) | task-file layout, task ids and the asset convention |
+| [`data/example/README.md`](data/example/README.md) | the per-task fields and the verifier reference |
+| [`docs/README.md`](docs/README.md) | index of the documentation set |
+| [`docs/task-authoring.md`](docs/task-authoring.md) | how to author and submit an item |
+| [`docs/failure-modes.md`](docs/failure-modes.md) | every failure mode, and the check that implements it |
+| [`docs/tools.md`](docs/tools.md) | canonical tool names, tool-surface rules and code-executor limits |
+| [`SECURITY.md`](SECURITY.md) | what the harness does and does not protect against |
+| [Google Colab](https://colab.research.google.com/drive/1ctDfb7he22O-ipqqhIxSmfM40fEOTWXI?usp=sharing) | run the harness end to end without installing anything |
+
+## Citation
+
+TBD
+
+## License
+
+This project is licensed under the MIT License. See [`LICENSE`](LICENSE) for details.

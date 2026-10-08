@@ -7,12 +7,14 @@ from core.manager import RuntimeManager
 
 EXAMPLE_TASK1_STRING = '{"task_id": 1,  \
                             "task": "Find for me what is the meaning of life, the universe, and everything.",  \
-                            "agent_id": "code_agent"   \
+                            "agent_id": "code_agent",  \
+                            "failure_modes": {"quantitative": ["correctness"]}   \
                           }'
 
 EXAMPLE_TASK2_STRING = '{"task_id": 2,  \
                             "task": "research tomatoes for me and provide 5 facts with sources", \
-                            "agent_id": "code_agent" \
+                            "agent_id": "code_agent", \
+                            "failure_modes": {"quantitative": ["correctness"]} \
                         }'
 
 
@@ -50,8 +52,9 @@ def test_load_tasks_excludes_already_completed(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_KEY", "x")
     conf = make_run_config(tmp_path, f"{EXAMPLE_TASK1_STRING}\n{EXAMPLE_TASK2_STRING}\n")
 
+    # a first run records the manifest; then one task's result shows up
+    RuntimeManager(conf)
     results_dir = conf.log_path / "results"
-    results_dir.mkdir(parents=True)
     (results_dir / "001.jsonl").write_text("{}")
 
     manager = RuntimeManager(conf)
@@ -61,7 +64,7 @@ def test_load_tasks_excludes_already_completed(tmp_path, monkeypatch):
     assert [(t.task_id, t.repetition) for t in manager._pending] == [(2, 1)]
 
 
-def test_load_completed_returns_empty_set_when_no_results_dir(tmp_path, monkeypatch):
+def test_load_completed_returns_empty_set_when_no_results_recorded(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_KEY", "x")
     conf = make_run_config(tmp_path, f"{EXAMPLE_TASK1_STRING}\n")
     manager = RuntimeManager(conf)
@@ -72,9 +75,9 @@ def test_load_completed_returns_empty_set_when_no_results_dir(tmp_path, monkeypa
 def test_load_completed_reads_task_ids_from_result_filenames(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_KEY", "x")
     conf = make_run_config(tmp_path, f"{EXAMPLE_TASK1_STRING}\n")
+    RuntimeManager(conf)  # writes the run manifest for this checkpoint
 
     results_dir = conf.log_path / "results"
-    results_dir.mkdir(parents=True)
     (results_dir / "001.jsonl").write_text("{}")
     (results_dir / "002.jsonl").write_text("{}")
 

@@ -34,7 +34,8 @@ logger = logging.getLogger(__file__)
     "--closed_book",
     is_flag=True,
     required=False,
-    help="Determines if the whole benchmark should be run in closed book mode (internet not available to the model)",
+    help="Run the whole benchmark in closed book mode: the agent gets no tools at all, so it can "
+    "only rely on its own knowledge (it keeps Python execution and final_answer)",
 )
 def main(config, dry, show_trace, closed_book):
     """

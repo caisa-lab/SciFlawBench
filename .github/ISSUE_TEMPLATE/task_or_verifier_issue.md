@@ -1,5 +1,5 @@
 ---
-name: Task / verifier issue
+name: Task / Verifier issue
 about: A specific benchmark task, verifier, or ground-truth answer looks wrong
 title: "[Task]: "
 labels: task-data
@@ -7,7 +7,7 @@ assignees: ''
 ---
 
 ## Task ID(s) affected
-`task_id`: 
+`task_id`:
 
 ## What's wrong
 - [ ] Ground truth / expected answer appears incorrect
