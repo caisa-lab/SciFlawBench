@@ -94,3 +94,38 @@ def test_basic_json_ouptut():
     assert not result.passed
 
 
+
+
+def test_non_string_outputs_are_graded():
+    # a code agent may hand back a python object rather than text, e.g. final_answer((2.7, 3.2))
+    numeric = verifier_registry.get("content:numeric_match")
+
+    result = run_check(numeric, (2.7, 3.2), expected="3.2", tol=0.05, index=1)
+    assert result.passed
+
+    result = run_check(numeric, (3.1, 2.8), expected="2.7", tol=0.05, index=0)
+    assert not result.passed
+    assert "Got value: 3.1" in result.details
+
+    result = run_check(numeric, 2.7, expected="2.7", tol=0.0)
+    assert result.passed
+
+    result = run_check(numeric, [2.7, 3.2], expected="2.7", tol=0.0, index=0)
+    assert result.passed
+
+    result = run_check(verifier_registry.get("format:json_output"), {"papers": []})
+    assert result.passed
+
+
+def test_unicode_minus_is_a_negative_sign():
+    numeric = verifier_registry.get("content:numeric_match")
+
+    result = run_check(numeric, "(\u22120.54, \u22121.39)", expected="-0.54", tol=0.001, index=0)
+    assert result.passed
+
+    result = run_check(numeric, "(\u22120.821, \u22120.65)", expected="-0.65", tol=0.001, index=1)
+    assert result.passed
+
+    # an en dash marks a range, not a sign: the upper end must stay positive
+    result = run_check(numeric, "2.8\u20134.2", expected="4.2", tol=0.001, index=1)
+    assert result.passed
