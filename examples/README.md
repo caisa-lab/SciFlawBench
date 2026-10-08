@@ -168,6 +168,7 @@ logs/<timestamp>/
 ├── scores.json              # overall, per-family and per-failure-mode scores
 └── results/
     ├── <task_id>.jsonl      # one line per repetition
+    ├── <task_id>_traces/<task_id>.<repetition>.json         # same record, indented for reading
     └── <task_id>_reports/<task_id>.<repetition>_report.md   # with generate_trace_reports
 ```
 

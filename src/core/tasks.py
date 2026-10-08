@@ -242,6 +242,12 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
         json.dump(result, f)
         f.write("\n")
 
+    # the JSONL above is what resuming reads; this indented copy is only for humans
+    trace_dir = output_dir / f"{task_id_slug(task.task_id)}_traces"
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    trace_file = trace_dir / f"{task_id_slug(task.task_id)}.{task.repetition}.json"
+    trace_file.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
     to_log["checks"] = [res.model_dump() for res in verifier_results]
     to_log["status"] = "success" if success else "failed"
     to_log["time_elapsed"] = time.time() - start_time

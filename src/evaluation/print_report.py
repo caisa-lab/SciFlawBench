@@ -5,10 +5,13 @@ from typing import Any
 
 TOOL_ICONS = {
     "web_search": "🔍",
-    "wiki_search": "📚",
+    "wikipedia_search": "📚",
+    "arxiv_search": "📄",
     "calculator": "🧮",
     "visit_webpage": "🌐",
-    "json_answer": "📦",
+    "read_file": "📂",
+    "current_time": "🕒",
+    "json_answer_tool": "📦",
 }
 
 
@@ -61,9 +64,10 @@ def mermaid_schema(trace, status):
     for x in trace:
         has_error = False
         if x.get("content"):  # omit empty thoughts
-            steps.append(("💭", None, has_error))
+            steps.append(("💭 Thought", None, has_error))
         elif "tool_name" in x:
-            label = TOOL_ICONS.get(x["tool_name"], x["tool_name"])
+            name = str(x["tool_name"]).replace('"', "'")
+            label = f"{TOOL_ICONS[name]} {name}" if name in TOOL_ICONS else name
             inp_key = json.dumps(x.get("inputs"), sort_keys=True)
             res = str(x.get("result") or "").lower()
             has_error = "error" in res
@@ -77,16 +81,19 @@ def mermaid_schema(trace, status):
         else:
             merged.append([label, inp, has_error, 1])
 
-    # Build diagram
-    nodes = ["Start"]
-    for label, _, has_error, count in merged:
+    # Node labels are quoted so emoji, spaces and "×" are valid mermaid
+    lines = ["flowchart LR", '    n0(["Start"])']
+    for i, (label, _, has_error, count) in enumerate(merged, start=1):
         suffix = f" ×{count}" if count > 1 else ""
-        error = "❌ " if has_error else ""
-        nodes.append(f"{label}{suffix}{error}")
-    nodes.append(f"{status}")
-
-    flow = " -> ".join(nodes)
-    return f"```mermaid\n    {flow}\n```"
+        error = " ❌" if has_error else ""
+        lines.append(f'    n{i}["{label}{suffix}{error}"]')
+    end = len(merged) + 1
+    lines.append(f'    n{end}(["{status}"])')
+    lines.append("    " + " --> ".join(f"n{i}" for i in range(end + 1)))
+    lines.append(f"    class n{end} {'passed' if status == 'Passed' else 'failed'}")
+    lines.append("    classDef passed fill:#d4edda,stroke:#28a745,color:#155724")
+    lines.append("    classDef failed fill:#f8d7da,stroke:#dc3545,color:#721c24")
+    return "```mermaid\n" + "\n".join(lines) + "\n```"
 
 
 def get_preview(tool, text):
@@ -104,6 +111,44 @@ def get_preview(tool, text):
     )
 
     return f"{preview}{details}"
+
+
+def render_judge_section(checks: list[dict]) -> list[str]:
+    """Markdown lines for the LLM-judge checks among `checks` (empty when there are none)."""
+    judged = [c for c in checks if "rubric" in (c.get("metadata") or {})]
+    if not judged:
+        return []
+
+    lines = ["## Judge Evaluation\n"]
+    for i, check in enumerate(judged, start=1):
+        meta = check["metadata"]
+        verdict = "✅ Passed" if check.get("passed") else "❌ Failed"
+        lines.append(f"### Judge {i}: {verdict}\n")
+        lines.append(f"**Judge model:** `{meta.get('judge_model', 'unavailable')}`\n")
+        rubric = "\n> ".join(str(meta["rubric"]).splitlines())
+        lines.append(f"**Rubric:**\n\n> {rubric}\n")
+        # without a justification the judge never answered, so `details` holds the reason
+        lines.append(f"**Justification:** {check.get('justification') or check.get('details', '')}\n")
+    lines.append("\n---\n")
+    return lines
+
+
+def render_validation_lines(checks: list[dict]) -> list[str]:
+    """One summary line per check; judge checks defer to the judge section for their rationale."""
+    if not checks:
+        return ["**Validation:** None\n"]
+
+    lines = [f"**Validation:** {sum(bool(c.get('passed')) for c in checks)}/{len(checks)} checks passed\n"]
+    judge_index = 0
+    for check in checks:
+        mark = "✅" if check.get("passed") else "❌"
+        if "rubric" in (check.get("metadata") or {}):
+            judge_index += 1
+            lines.append(f"- {mark} LLM judge {judge_index} (see Judge Evaluation)")
+        else:
+            lines.append(f"- {mark} {check.get('details', '')}")
+    lines.append("")
+    return lines
 
 
 def render_trace_markdown(data: dict[str, Any]) -> str:
@@ -127,8 +172,7 @@ def render_trace_markdown(data: dict[str, Any]) -> str:
     checks = data.get("check_results")
     validation_lines = []
     if checks is not None:
-        validation_str = checks[0].get("details", "None") if checks else "None"
-        validation_lines = [f"**Validation:** {validation_str}\n"]
+        validation_lines = render_validation_lines(checks)
     diagram_block = mermaid_schema(trace, status)
     legend = " | ".join(f"{icon} {name}" for name, icon in TOOL_ICONS.items())
 
@@ -141,6 +185,7 @@ def render_trace_markdown(data: dict[str, Any]) -> str:
         f"**Tokens:** {token_str}\n",
         *validation_lines,
         "\n---\n",
+        *render_judge_section(checks or []),
         "## Execution Trace\n",
         f"**Legend:** 💭 Thought | {legend}\n",
         diagram_block,
@@ -169,7 +214,7 @@ def render_trace_markdown(data: dict[str, Any]) -> str:
             result = step.get("result", "")
             output_section = f"**Output:** `{result}`\n" if tool == "calculator" else get_preview(tool, result)
 
-            block = f"\n> **Tool Call:** `{tool}`\n\n>`{inputs}`\n\n{output_section}"
+            block = f"\n> **Tool Call:** `{tool}`\n\n```json\n{inputs}\n```\n\n{output_section}"
             md_lines.append(block)
 
     return "\n".join(md_lines)
