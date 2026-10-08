@@ -64,7 +64,6 @@ uv sync
 respectively as a developer run
 ```bash
 uv sync --all-extras
-pre-commit install
 ```
 
 ### Configuring the benchmark
