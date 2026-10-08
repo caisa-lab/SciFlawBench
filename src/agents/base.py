@@ -8,7 +8,7 @@ from core.config import ModelConfig
 from core.events import EventWatcher
 from models.base import build_model
 from tools.base import ToolDef, resolve_tools
-from tools.definitions import tool_registry
+from tools.definitions import tool_registry, WEB_TOOL_NAMES
 
 
 @dataclass
@@ -30,6 +30,7 @@ def build_agent(
     watcher: EventWatcher,
     tool_overrides: dict[str, ToolDef],
     extra_tools: list[ToolDef | str],
+    closed_book: bool = False,
 ) -> BuiltAgent:
     """
     builds an agent from the specified agent_id and model conf along with the associated watcher class
@@ -47,7 +48,11 @@ def build_agent(
     definition = agent_registry.create(agent_id)
     prompts = load_prompt_templates(definition.prompt_path)
     overrides = resolve_tools(definition.tools, tool_overrides)
-    tools = [tool_registry.create(t.tool_name, watcher=watcher, **t.kwargs) for t in overrides + extra_tools]
+
+    all_tools = overrides + [t if isinstance(t, ToolDef) else ToolDef(tool_name=t) for t in extra_tools]
+    if closed_book:
+        all_tools = [t for t in all_tools if t.tool_name not in WEB_TOOL_NAMES]
+    tools = [tool_registry.create(t.tool_name, watcher=watcher, **t.kwargs) for t in all_tools]
 
     # TODO: for indentations, we can also use pre-commit with black, I can set that up
     # TODO: make this an elif with else for raise ValueError in case agent_type is neither code nor search
