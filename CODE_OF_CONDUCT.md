@@ -1,7 +1,7 @@
 
 # Contributor Covenant Code of Conduct
 
-This Code of Conduct applies to the [SciFlawBenchHarness](https://github.com/caisa-lab/SciFlawBenchHarness) project and its community spaces.
+This Code of Conduct applies to the [SciFlawBench](https://github.com/caisa-lab/SciFlawBench) project and its community spaces.
 
 ## Our Pledge
 
@@ -36,7 +36,7 @@ Community leaders have the right and responsibility to remove, edit, or reject c
 
 ## Scope
 
-This Code of Conduct applies within all SciFlawBenchHarness community spaces, including the [SciFlawBenchHarness GitHub repository](https://github.com/caisa-lab/SciFlawBenchHarness), and also applies when an individual is officially representing the community in public spaces. Examples of representing our community include using an official e-mail address, posting via an official social media account, or acting as an appointed representative at an online or offline event.
+This Code of Conduct applies within all SciFlawBench community spaces, including the [SciFlawBench GitHub repository](https://github.com/caisa-lab/SciFlawBench), and also applies when an individual is officially representing the community in public spaces. Examples of representing our community include using an official e-mail address, posting via an official social media account, or acting as an appointed representative at an online or offline event.
 
 ## Enforcement
 

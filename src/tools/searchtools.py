@@ -7,7 +7,6 @@ from smolagents import Tool, WikipediaSearchTool
 
 
 class SerpAPISearchTool(Tool):
-
     name = "web_search"
     description = """Performs a web search based on your query (think a Google search) then returns the top
     search results."""
@@ -49,7 +48,7 @@ class SerpAPISearchTool(Tool):
                 title = res.get("title", "")
                 link = res.get("link", "")
                 snippet = res.get("snippet", "")
-                lines.append(f"{res.get("position", "")}. [{title}] ({link}) \n {snippet}")
+                lines.append(f"{res.get('position', '')}. [{title}] ({link}) \n {snippet}")
             parts.append("\n".join(lines))
 
         return "\n\n".join(parts) if parts else "No Results Found."
@@ -83,7 +82,7 @@ class ImprovedWikipediaSearchTool(WikipediaSearchTool):
     }
 
     BASE_URL = "https://en.wikipedia.org/w/rest.php/v1/search/page"
-    USER_AGENT_BASE = "AgenticWikipediaSearch/0.1 (https://github.com/ivzx04/SciFlawBenchHarness; "
+    USER_AGENT_BASE = "AgenticWikipediaSearch/0.1 (https://github.com/ivzx04/SciFlawBench; "
 
     def __init__(self, operator: str, content_type: str = "text", extract_format: str = "WIKI"):
 
@@ -166,7 +165,7 @@ class ArxivSearchTool(Tool):
     output_type = "string"
 
     BASE_URL = "https://arcxiv.org/api/agent/search"
-    USER_AGENT_BASE = "AgenticArXivSearch/0.1 (https://github.com/ivzx04/SciFlawBenchHarness; "
+    USER_AGENT_BASE = "AgenticArXivSearch/0.1 (https://github.com/ivzx04/SciFlawBench; "
 
     def __init__(self, operator: str):
         super().__init__()

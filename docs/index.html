@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SciFlawBench — a benchmark for catching scientific flaws</title>
+<title>SciFlawBench — An agentic benchmark for measuring whether AI agents can reliably complete real scientific tasks.</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -418,10 +418,10 @@
         <p class="kicker">§3 — the harness</p>
         <h2>Run the benchmark yourself</h2>
         <p>The harness handles dispatching agents against tasks, timing out runs, and scoring the result — you bring a model and a config file. It supports code-writing agents and tool-calling agents out of the box, with search tools (arXiv, Wikipedia, SerpAPI) available during a run.</p>
-        <p class="mono">git clone git@github.com:caisa-lab/SciFlawBenchHarness.git</p>
+        <p class="mono">git clone git@github.com:caisa-lab/SciFlawBench.git</p>
       </div>
       <div>
-        <a class="note" style="text-decoration:none; display:block;" href="https://github.com/caisa-lab/SciFlawBenchHarness" target="_blank" rel="noopener">→ SciFlawBenchHarness on GitHub</a>
+        <a class="note" style="text-decoration:none; display:block;" href="https://github.com/caisa-lab/SciFlawBench" target="_blank" rel="noopener">→ SciFlawBench on GitHub</a>
       </div>
     </div>
   </section>
@@ -435,19 +435,19 @@
           <div class="step">
             <div>
               <h3>Read the project doc</h3>
-              <p>Start with the write-up — it covers the benchmark design, the flaw categories we test for, and where things currently stand.</p>
+              <p>Start with the <a href="https://github.com/caisa-lab/SciFlawBench/blob/main/docs/README.md" target="_blank" rel="noopener">documentation</a> — it covers the benchmark design, the flaw categories we test for, and where things currently stand.</p>
             </div>
           </div>
           <div class="step">
             <div>
               <h3>Clone and run the harness</h3>
-              <p>Install it, point it at a model, and run the benchmark yourself. The README covers setup with pip or uv and how to write a task config.</p>
+              <p>Install it, point it at a model, and run the benchmark yourself. The <a href="https://github.com/caisa-lab/SciFlawBench/blob/main/README.md" target="_blank" rel="noopener">README</a> covers setup with pip or uv and how to write a task config.</p>
             </div>
           </div>
           <div class="step">
             <div>
               <h3>Submit findings or new tasks</h3>
-              <p>Found a flaw type we're missing, a bug in a run, or want to submit a candidate task? Tell us through the contribution form.</p>
+              <p>Found a flaw type we're missing, a bug in a run, or want to submit a candidate task? The <a href="https://github.com/caisa-lab/SciFlawBench/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">contribution guide</a> explains how to submit an item or report an issue.</p>
             </div>
           </div>
           <div class="step">
@@ -469,20 +469,35 @@
       <p class="kicker">§5 — documentation &amp; links</p>
       <h2>Everything in one place</h2>
       <div class="links">
-        <a class="link-card" href="https://github.com/caisa-lab/SciFlawBenchHarness" target="_blank" rel="noopener">
+        <a class="link-card" href="https://github.com/caisa-lab/SciFlawBench" target="_blank" rel="noopener">
           <span class="lc-kicker">repository</span>
-          <span class="lc-title">SciFlawBenchHarness</span>
+          <span class="lc-title">SciFlawBench</span>
           <span class="lc-desc">The harness code — clone it, configure a model, run the benchmark.</span>
         </a>
-        <a class="link-card" href="https://docs.google.com/document/d/15ewdnlKMoV5pXLlmT08iKjdofdZSmrsP/edit" target="_blank" rel="noopener">
-          <span class="lc-kicker">documentation</span>
-          <span class="lc-title">Project write-up</span>
-          <span class="lc-desc">Benchmark design, flaw categories, and current status.</span>
-        </a>
-        <a class="link-card" href="https://docs.google.com/forms/d/e/1FAIpQLScoBsfkjmb8h_zV5LYm2Nt9LNWZ5PQAm6xFb2PxMyJnvhbGcA/viewform" target="_blank" rel="noopener">
+        <a class="link-card" href="https://github.com/caisa-lab/SciFlawBench/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">
           <span class="lc-kicker">contribute</span>
-          <span class="lc-title">Submission form</span>
-          <span class="lc-desc">Report a finding, propose a task, or ask to join in.</span>
+          <span class="lc-title">Contributing guide</span>
+          <span class="lc-desc">How to contribute along either track — benchmark items or harness code.</span>
+        </a>
+        <a class="link-card" href="https://github.com/caisa-lab/SciFlawBench/blob/main/docs/README.md" target="_blank" rel="noopener">
+          <span class="lc-kicker">documentation</span>
+          <span class="lc-title">Documentation index</span>
+          <span class="lc-desc">The full documentation set: harness, item authoring, failure modes and tools.</span>
+        </a>
+        <a class="link-card" href="https://github.com/caisa-lab/SciFlawBench/blob/main/docs/task-authoring.md" target="_blank" rel="noopener">
+          <span class="lc-kicker">authoring</span>
+          <span class="lc-title">Authoring benchmark items</span>
+          <span class="lc-desc">Scope, answer formats, the review process, and how a submission becomes a task.</span>
+        </a>
+        <a class="link-card" href="https://github.com/caisa-lab/SciFlawBench/blob/main/docs/failure-modes.md" target="_blank" rel="noopener">
+          <span class="lc-kicker">failure modes</span>
+          <span class="lc-title">Failure-mode catalogue</span>
+          <span class="lc-desc">Every flaw an item can probe, and the check that implements it in the harness.</span>
+        </a>
+        <a class="link-card" href="https://github.com/caisa-lab/SciFlawBench/blob/main/docs/tools.md" target="_blank" rel="noopener">
+          <span class="lc-kicker">tools</span>
+          <span class="lc-title">Canonical tools</span>
+          <span class="lc-desc">Tool names items may request, the tool surface, and code-executor limits.</span>
         </a>
       </div>
     </div>
@@ -507,9 +522,9 @@
     <div class="wrap">
       <div class="fine">SciFlawBench — University of Bonn</div>
       <nav>
-        <a href="https://github.com/caisa-lab/SciFlawBenchHarness" target="_blank" rel="noopener">Harness</a>
-        <a href="https://docs.google.com/document/d/15ewdnlKMoV5pXLlmT08iKjdofdZSmrsP/edit" target="_blank" rel="noopener">Docs</a>
-        <a href="https://docs.google.com/forms/d/e/1FAIpQLScoBsfkjmb8h_zV5LYm2Nt9LNWZ5PQAm6xFb2PxMyJnvhbGcA/viewform" target="_blank" rel="noopener">Submit</a>
+        <a href="https://github.com/caisa-lab/SciFlawBench" target="_blank" rel="noopener">Harness</a>
+        <a href="https://github.com/caisa-lab/SciFlawBench/blob/main/docs/README.md" target="_blank" rel="noopener">Docs</a>
+        <a href="https://github.com/caisa-lab/SciFlawBench/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contribute</a>
       </nav>
     </div>
   </footer>

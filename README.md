@@ -1,6 +1,6 @@
 <div align="center">
 
-# SciFlawBench Harness
+# SciFlawBench
 
 **🔬 An agentic benchmark for measuring whether AI agents can reliably complete real scientific tasks. 🔭**
 
@@ -104,7 +104,7 @@ utils/
 ### Installing through pip
 
 ```bash
-git clone https://github.com/caisa-lab/SciFlawBenchHarness.git && cd SciFlawBenchHarness
+git clone https://github.com/caisa-lab/SciFlawBench.git && cd SciFlawBench
 python -m venv .venv && source .venv/bin/activate   # optional, but recommended
 pip install .                                       # add -e for an editable install
 ```
@@ -112,7 +112,7 @@ pip install .                                       # add -e for an editable ins
 ### Installing with uv
 
 ```bash
-git clone https://github.com/caisa-lab/SciFlawBenchHarness.git && cd SciFlawBenchHarness
+git clone https://github.com/caisa-lab/SciFlawBench.git && cd SciFlawBench
 uv sync                                             # runtime dependencies
 uv sync --all-extras && pre-commit install          # developer setup: dev tools + git hooks
 ```
