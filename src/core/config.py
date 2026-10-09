@@ -44,7 +44,20 @@ class ModelConfig(BaseModel):
     # this is kept in the model config because it generally is a model dependant field to be configured
     code_block_tags: tuple[str, str] | None = None
 
+    # Input-token budget used for context hygiene: before every model call the conversation
+    # is trimmed to fit this window so a long run never overflows the model's context. The
+    # default fits most current models; raise it (e.g. 1_000_000) for a long-context model.
+    model_max_context: int = 128_000
+
     _api_key: str = PrivateAttr()
+
+    @field_validator("model_max_context")
+    @classmethod
+    def model_max_context_is_positive(cls, v: int) -> int:
+        """Reject a non-positive context window: it would disable all context trimming."""
+        if v <= 0:
+            raise ValueError("model_max_context must be a positive number of tokens")
+        return v
 
     @model_validator(mode="after")
     def resolve_api_key(self) -> "ModelConfig":
@@ -117,6 +130,21 @@ class RunConfig(BaseModel):
     task_timeout_s: int = 60 * 15  # 15 minute timeout for tasks before they get killed by the runtime manager
     restarting: bool = False  # if you want to restart on a specific dir specify the log_path and set to True
     generate_trace_reports: bool = False
+
+    # Oversized tool outputs are spilled to a per-task artifact directory and the observation
+    # carries a preview plus instructions for retrieving the rest (see tools/artifacts.py).
+    # Set `artifact_spill` to False to fall back to plain in-place truncation.
+    artifact_spill: bool = True
+    # Characters a tool may return before its output is spilled to disk.
+    tool_output_max_chars: int = 20_000
+
+    @field_validator("tool_output_max_chars")
+    @classmethod
+    def tool_output_max_chars_is_positive(cls, v: int) -> int:
+        """Reject a non-positive cap: it would disable output capping entirely."""
+        if v <= 0:
+            raise ValueError("tool_output_max_chars must be a positive number of characters")
+        return v
 
     @field_validator("task_file")
     @classmethod

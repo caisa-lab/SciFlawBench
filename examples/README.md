@@ -38,6 +38,8 @@ The file is a single JSON object. Only `model` and `task_file` are required. Unk
 | `logging_level` | int | `20` | Standard-library logging level: `10` DEBUG, `20` INFO, `30` WARNING, `40` ERROR |
 | `restarting` | bool | `false` | Resume in place: treat `log_path` as an existing run directory instead of creating a new timestamped one. Set `log_path` to the interrupted run's directory. See [Reproducibility and resuming](../README.md#reproducibility-and-resuming) |
 | `generate_trace_reports` | bool | `false` | Also write a human-readable Markdown report per task/repetition under `results/<task_id>_reports/` |
+| `artifact_spill` | bool | `true` | Spill oversized tool outputs to disk under `results/<task_id>_artifacts/` and give the agent the `search_artifact`/`read_artifact`/`list_artifacts` tools. Set to `false` to truncate oversized outputs in place instead (no files written, no retrieval tools) |
+| `tool_output_max_chars` | int | `20000` | Characters a tool may return before its output is capped. With `artifact_spill`, the overflow is saved to disk; otherwise it is truncated in place. `wikipedia_search` uses a larger cap (50 000) |
 
 Both `closed_book` (here) and `restarting` interact with per-task and per-run state: a task may also declare `closed_book` itself. See [Per-task fields](#per-task-fields).
 
@@ -53,6 +55,7 @@ Both `closed_book` (here) and `restarting` interact with per-task and per-run st
 | `api_base` | string \| null | `null` | Base URL of the endpoint. Needed for self-hosted or non-default OpenAI-compatible servers |
 | `extra_kwargs` | object | `{}` | Extra keyword arguments forwarded verbatim to the smolagents model constructor: `temperature`, `max_tokens`, request timeouts, provider routing, and so on |
 | `code_block_tags` | `[string, string]` \| null | `null` | Rarely needed: the opening/closing fence pair used to extract code blocks from a model's response, for models whose output does not use the default Markdown fences |
+| `model_max_context` | int | `128000` | Input-token budget for **context hygiene**: before every model call the conversation is trimmed to fit this window, truncating the oldest observations first. Raise it (e.g. `1000000`) for a long-context model |
 
 #### Provider notes
 
@@ -106,6 +109,13 @@ Each entry **replaces** the keyword arguments of that tool for the whole run (ra
 
 The default agents (`code_agent`, `tool_agent`) start with `web_search`, `wikipedia_search`, `visit_webpage`, `calculator`, `current_time` and `arxiv_search`. Tools listed in a task's `extra_tools` are appended on top of that list.
 
+### Context hygiene and large outputs
+
+Two run-level mechanisms keep a long agent run from overflowing the model's context window and preserve the content of very large tool outputs:
+
+- **Context hygiene** (`model.model_max_context`, default 128 000): before every model call the harness estimates the input size and, when it exceeds the window, trims the conversation — truncating the oldest observations first, then other non-essential messages — while always keeping the system prompt, the original task and the most recent steps. Raise `model_max_context` (e.g. `1000000`) for a long-context model.
+- **Artifact spill-over** (`artifact_spill`, `tool_output_max_chars`): when a tool returns more than `tool_output_max_chars` characters (default 20 000; `wikipedia_search` uses 50 000), the full text is written to `results/<task_id>_artifacts/<repetition>/` and the observation carries a short preview plus a banner naming the file. The agent then uses `search_artifact` (grep-like), `read_artifact` (read a line range) or `list_artifacts` (list the files) to recover the rest. With `artifact_spill: false`, oversized outputs are truncated in place instead (the pre-artifact behaviour) and the retrieval tools are not added.
+
 ### Environment variables
 
 | Variable | Required | Description |
@@ -141,7 +151,8 @@ The task file referenced by `task_file` has its own schema, documented in [`../d
     "provider": "litellm",
     "model_id": "openrouter/qwen/qwen3.7-flash",
     "api_key_env": "OPENROUTER_API_KEY",
-    "extra_kwargs": { "temperature": 0.2 }
+    "extra_kwargs": { "temperature": 0.2 },
+    "model_max_context": 128000
   },
   "judge": {
     "model_id": "openrouter/qwen/qwen3.7-flash",
@@ -169,7 +180,8 @@ logs/<timestamp>/
 └── results/
     ├── <task_id>.jsonl      # one line per repetition
     ├── <task_id>_traces/<task_id>.<repetition>.json         # same record, indented for reading
-    └── <task_id>_reports/<task_id>.<repetition>_report.md   # with generate_trace_reports
+    ├── <task_id>_reports/<task_id>.<repetition>_report.md   # with generate_trace_reports
+    └── <task_id>_artifacts/rep<repetition>/                 # spilled tool outputs (with artifact_spill)
 ```
 
 See [Reproducibility and resuming](../README.md#reproducibility-and-resuming) for how the manifest gates resuming a run.

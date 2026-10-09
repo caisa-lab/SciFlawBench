@@ -19,6 +19,7 @@ from evaluation.definitions import verifier_registry
 from evaluation.judge import LiteLLMJudge
 from evaluation.print_report import render_trace_markdown, save_markdown_report
 from evaluation.scoring import FailureModes
+from tools.artifacts import ArtifactStore
 from tools.base import ToolDef
 
 logger = logging.getLogger(__file__)
@@ -200,9 +201,25 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
     tool_overrides = {t.tool_name: t for t in run_config.tool_configs}
     is_closed_book = run_config.closed_book or task.closed_book
 
+    # Per-task artifact store: oversized tool outputs are spilled next to this task's traces
+    # and reports (`<output_dir>/<task_id>_artifacts/<repetition>/`), so the agent can grep or
+    # page through them later instead of losing the content to a plain truncation. A
+    # closed-book run has no tools, so it produces no artifacts and gets no store.
+    artifact_store = None
+    if run_config.artifact_spill and not is_closed_book:
+        artifact_store = ArtifactStore(output_dir / f"{task_id_slug(task.task_id)}_artifacts")
+        artifact_store.set_scope(f"rep{task.repetition}")
+
     try:
         built_agent = build_agent(
-            task.agent_id, model_conf, watcher, tool_overrides, task.extra_tools, closed_book=is_closed_book
+            task.agent_id,
+            model_conf,
+            watcher,
+            tool_overrides,
+            task.extra_tools,
+            closed_book=is_closed_book,
+            artifact_store=artifact_store,
+            tool_output_max_chars=run_config.tool_output_max_chars,
         )
         out = built_agent.watcher("agent", built_agent.definition.name, built_agent.agent.run, prompt)
         success = True

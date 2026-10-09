@@ -24,6 +24,8 @@ task file (.jsonl) -> one process per task -> agent + tools -> verifiers -> resu
 Each task runs in its own process under a wall-clock timeout and writes its own result file. Verifiers grade either the final answer (deterministic
 checks) or the whole run trace (an LLM judge), and the harness aggregates every recorded run into the overall and per-failure-mode scores — see [Scoring](#scoring).
 
+Two mechanisms keep a long run inside the model's context window. **Context hygiene** trims the oldest observations before every model call so the input fits `model.model_max_context` (default 128 000 tokens; raise it for a long-context model). **Artifact spill-over** writes any tool output larger than `tool_output_max_chars` to a per-task artifact directory, leaving the agent a short preview plus the `search_artifact`/`read_artifact`/`list_artifacts` tools to recover the rest — so a large page or result set is never simply lost to a truncation.
+
 ## Repository overview
 
 ### Source
@@ -50,11 +52,14 @@ src/
 │   ├── scoring.py              # failure-mode taxonomy and overall/per-mode score aggregation
 │   └── base.py                 # defines basic necessary structures for validation code
 ├── models/
-│   └── base.py                 # defines how to build a model and model wrapper
+│   ├── base.py                 # defines how to build a model and model wrapper
+│   └── context.py              # context hygiene: token estimation and message trimming
 ├── tools/
 │   ├── misc.py                 # miscellaneous custom tool classes that get registered
 │   ├── definitions.py          # tool definitions and the tool registry
 │   ├── searchtools.py          # contains the searchtools available to the agents: (arxiv, SerpAPI, wikipedia)
+│   ├── artifacts.py            # artifact store: spills oversized tool outputs to disk
+│   ├── artifacttools.py        # retrieval tools for spilled outputs (search_artifact/read_artifact/list_artifacts)
 │   └── base.py                 # the wrapper used by every tool
 └── main.py                     # CLI entry point for running the harness
 ```
@@ -181,7 +186,11 @@ logs/<timestamp>/            # the `log_path` itself when `restarting` is set
 ├── aggregate_results.jsonl  # one line per finished run (each links to the manifest sha)
 ├── run_summary.log          # human-readable progress log (ends with the score block)
 ├── scores.json              # overall, per-family and per-failure-mode scores
-└── results/                 # per-task results: one file per task id, one line per repetition
+└── results/                 # per-task results (one file per task id, one line per repetition)
+    ├── <task_id>.jsonl      # one line per repetition
+    ├── <task_id>_traces/    # indented per-repetition trace files (for reading)
+    ├── <task_id>_reports/   # markdown trace reports (with generate_trace_reports)
+    └── <task_id>_artifacts/ # spilled tool outputs, one sub-directory per repetition
 ```
 
 The manifest captures the task set (file and content hashes), the local assets it depends on, the agent prompt templates, the model configuration, the tool configuration, the judge configuration (for runs whose tasks are graded by an LLM judge), the budget (repetitions, timeout) and environment provenance (git revision, dependency versions, platform).

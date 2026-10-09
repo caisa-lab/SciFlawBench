@@ -18,6 +18,11 @@ tool_registry = Registry("Tool")
 
 logger = logging.getLogger()
 
+# `VisitWebpageTool` truncates internally at 40 000 characters.  We disable that (by raising
+# the limit far above any real page) so the artifact output cap sees the *full* text and can
+# spill it to disk; the cap still truncates for the agent's context.
+_VISIT_WEBPAGE_MAX_OUTPUT_LENGTH = 10**9
+
 
 # Tools kept in a closed-book run. Closed-book means the model may only draw on its own
 # knowledge: no web search, no local file reads, no calculator, no task-specific tools.
@@ -61,7 +66,9 @@ def make_arxiv_search_tool(watcher, operator: str = "OPERATOR EMAIL NOT SET") ->
 
 @tool_registry.register("visit_webpage")
 def make_visit_webpage_tool(watcher) -> WrappedTool:
-    return WrappedTool(wrapped_tool=VisitWebpageTool(), watcher=watcher)
+    return WrappedTool(
+        wrapped_tool=VisitWebpageTool(max_output_length=_VISIT_WEBPAGE_MAX_OUTPUT_LENGTH), watcher=watcher
+    )
 
 
 @tool_registry.register("calculator")

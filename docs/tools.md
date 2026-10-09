@@ -12,15 +12,20 @@ Every tool named in an item submission must match a name from this table. Do not
 | Tool | Options (defaults) | Default tool? | Notes |
 | ---- | ------------------ | ------------- | ----- |
 | `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests/second), `engine` (`"duckduckgo"`) | yes | SerpAPI replaces DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is not `"duckduckgo"` |
-| `wikipedia_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | yes | The operator email is sent in the request `User-Agent`, as the Wikimedia API policy asks |
+| `wikipedia_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | yes | The operator email is sent in the request `User-Agent`, as the Wikimedia API policy asks. The query is matched against article *titles*; a partial or slightly misspelled title is **auto-resolved** to the closest matching article |
 | `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | yes | Same, for the arXiv API. Fuzzy-matches titles/abstracts and returns ids, links and abstracts |
-| `visit_webpage` | – | yes | Fetches a URL and returns the page as Markdown (20 s timeout, truncated to 40 000 characters) |
+| `visit_webpage` | – | yes | Fetches a URL (20 s timeout) and returns the page as Markdown. Its internal 40 000-character limit is disabled so the artifact output cap governs and an oversized page is spilled rather than lost |
 | `calculator` | – | yes | Evaluates a `sympy` expression in a subprocess limited to 5 CPU-seconds, 1 GiB and a 10 s wall clock; rejects expressions longer than 500 characters |
 | `current_time` | – | yes | Returns the current local time |
 | `read_file` | `max_rows` (`50`), `max_chars` (`20000`) | **no** — opt-in | Renders CSV/TSV/PSV as tables, pretty-prints JSON, summarises JSONL, lists directories, and returns other text files as-is. Refuses binaries and files over 8 MB |
 | `json_answer_tool` | `required_fields` (`[]`) | **no** — opt-in | Validates that a proposed final answer is JSON containing the required keys. It does **not** submit the answer: the agent still has to call `final_answer` |
+| `search_artifact` | `pattern`, `path`, `regex`, `ignore_case`, `context_lines`, `max_matches` | **harness-provided** | grep-like search inside a spilled tool output (or across all of the current task's outputs). Added automatically when `artifact_spill` is on |
+| `read_artifact` | `path`, `start_line`, `end_line`, `max_chars` | **harness-provided** | Reads a 1-based, inclusive line range of a spilled tool output |
+| `list_artifacts` | – | **harness-provided** | Lists the spilled tool outputs saved for the current task |
 
-The default agents (`code_agent` for code-generating agents, `tool_agent` for tool-calling agents) start with `web_search`, `wikipedia_search`, `visit_webpage`, `calculator`, `current_time` and `arxiv_search`. `final_answer` is supplied by the framework and is always available.
+**The `*_artifact` tools are harness-provided, not registered.** They are *not* entries in the tool registry, so a task must not list them in its `extra_tools` — doing so fails with an unknown-tool error. (A `tool_configs` entry naming one is a harmless no-op: that map only overrides tools the agent already has.) Instead, `build_agent` constructs and appends them itself whenever artifact spill-over is on (the default `artifact_spill: true`). From the model's point of view they are ordinary tools: a `code_agent` sees them rendered in its system prompt alongside the built-ins, and a `tool_agent` receives them as callable tool schemas.
+
+The default agents (`code_agent` for code-generating agents, `tool_agent` for tool-calling agents) start with `web_search`, `wikipedia_search`, `visit_webpage`, `calculator`, `current_time` and `arxiv_search`. `final_answer` is supplied by the framework and is always available. When artifact spill-over is enabled the harness also appends `search_artifact`, `read_artifact` and `list_artifacts`.
 
 ## 2. Declaring tools on an item
 
