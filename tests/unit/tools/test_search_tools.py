@@ -27,7 +27,28 @@ def test_failed_wiki_query():
     assert "AI alignment" in res
 
 
-def test_simple_arxiv_query():
+def test_simple_arxiv_query(monkeypatch):
+    payload = {
+        "hits": [
+            {
+                "publishedAt": "2024-01-01T00:00:00Z",
+                "arxivId": "2401.00001",
+                "title": "A Study of LLM Alignment",
+                "abstract": "We study alignment of large language models.",
+                "links": {"markdown": "https://example.com/article.md"},
+            }
+        ]
+    }
+
+    class _FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return payload
+
+    monkeypatch.setattr("tools.searchtools.requests.get", lambda *args, **kwargs: _FakeResponse())
+
     search_tool = ArxivSearchTool(operator="test_suite")
     res = search_tool.forward(query="LLM alignment", sort="relevance", fromYear=2020)
     print(res)

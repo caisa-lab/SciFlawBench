@@ -187,10 +187,9 @@ class ArxivSearchTool(Tool):
         try:
             resp = requests.get(self.BASE_URL, params=params, headers={"User-Agent": self.user_agent})
             resp.raise_for_status()
-        except Exception:
-            return ["Error searching for Arxiv papers: {str(e)}]"]
-
-        data = resp.json()
+            data = resp.json()
+        except Exception as e:
+            return [f"Error searching for Arxiv papers: {e}"]
 
         if "hits" not in data:
             return []
