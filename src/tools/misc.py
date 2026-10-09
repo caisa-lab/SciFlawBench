@@ -8,7 +8,10 @@ from smolagents import Tool
 CALC_SCRIPT = """
 import sys, json, resource
 resource.setrlimit(resource.RLIMIT_CPU, (5,5)) # 5 cpu-second hard cap for the process
-resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024,) * 2) # 1 GB memory cap
+try:
+    resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024,) * 2) # 1 GB memory cap
+except ValueError:
+    pass # macOS reserves ~400 GB of address space at startup and rejects the cap; rely on the cpu cap there
 
 import sympy
 expr = sys.argv[1]
