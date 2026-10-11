@@ -19,6 +19,7 @@ from evaluation.definitions import verifier_registry
 from evaluation.judge import LiteLLMJudge
 from evaluation.print_report import render_trace_markdown, save_markdown_report
 from evaluation.scoring import FailureModes
+from models.memory import MemoryOffloader
 from tools.artifacts import ArtifactStore
 from tools.base import ToolDef
 
@@ -206,9 +207,17 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
     # page through them later instead of losing the content to a plain truncation. A
     # closed-book run has no tools, so it produces no artifacts and gets no store.
     artifact_store = None
+    memory_offloader = None
     if run_config.artifact_spill and not is_closed_book:
         artifact_store = ArtifactStore(output_dir / f"{task_id_slug(task.task_id)}_artifacts")
         artifact_store.set_scope(f"rep{task.repetition}")
+        # Messages evicted by context trimming go to `memory.md` in that same scope
+        if run_config.memory_offload:
+            memory_offloader = MemoryOffloader(
+                artifact_store,
+                digest_chars=run_config.memory_digest_chars,
+                index_max_chars=run_config.memory_index_max_chars,
+            )
 
     try:
         built_agent = build_agent(
@@ -220,6 +229,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
             closed_book=is_closed_book,
             artifact_store=artifact_store,
             tool_output_max_chars=run_config.tool_output_max_chars,
+            memory_offloader=memory_offloader,
         )
         out = built_agent.watcher("agent", built_agent.definition.name, built_agent.agent.run, prompt)
         success = True

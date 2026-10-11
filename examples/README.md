@@ -40,6 +40,9 @@ The file is a single JSON object. Only `model` and `task_file` are required. Unk
 | `generate_trace_reports` | bool | `false` | Also write a human-readable Markdown report per task/repetition under `results/<task_id>_reports/` |
 | `artifact_spill` | bool | `true` | Spill oversized tool outputs to disk under `results/<task_id>_artifacts/` and give the agent the `search_artifact`/`read_artifact`/`list_artifacts` tools. Set to `false` to truncate oversized outputs in place instead (no files written, no retrieval tools) |
 | `tool_output_max_chars` | int | `20000` | Characters a tool may return before its output is capped. With `artifact_spill`, the overflow is saved to disk; otherwise it is truncated in place. `wikipedia_search` uses a larger cap (50 000) |
+| `memory_offload` | bool | `true` | Spill messages evicted by context trimming to `memory.md` in the task's artifact directory, leaving a digest and pointer in their place (see [Context hygiene and large outputs](#context-hygiene-and-large-outputs)). Needs `artifact_spill` |
+| `memory_digest_chars` | int | `200` | Characters of an evicted message kept inline as its digest (`0` for none) |
+| `memory_index_max_chars` | int | `4000` | Cap on the block index appended to the task message |
 
 Both `closed_book` (here) and `restarting` interact with per-task and per-run state: a task may also declare `closed_book` itself. See [Per-task fields](#per-task-fields).
 
@@ -55,7 +58,8 @@ Both `closed_book` (here) and `restarting` interact with per-task and per-run st
 | `api_base` | string \| null | `null` | Base URL of the endpoint. Needed for self-hosted or non-default OpenAI-compatible servers |
 | `extra_kwargs` | object | `{}` | Extra keyword arguments forwarded verbatim to the smolagents model constructor: `temperature`, `max_tokens`, request timeouts, provider routing, and so on |
 | `code_block_tags` | `[string, string]` \| null | `null` | Rarely needed: the opening/closing fence pair used to extract code blocks from a model's response, for models whose output does not use the default Markdown fences |
-| `model_max_context` | int | `128000` | Input-token budget for **context hygiene**: before every model call the conversation is trimmed to fit this window, truncating the oldest observations first. Raise it (e.g. `1000000`) for a long-context model |
+| `model_max_context` | int \| null | `null` | Context window of the model, in tokens. When unset it is auto-detected (the `max_model_len` a vLLM-style `openai_server` reports, then LiteLLM's model table) and falls back to `256000` with a warning. Set it (e.g. `1000000`) to override detection — a wrong window silently weakens context trimming |
+| `max_new_tokens` | int \| null | `16384` | Cap on the tokens generated per model call (one agent step). It is sent to the provider as `max_tokens` and reserved out of the input budget. `null` leaves the provider default and reserves nothing. A legacy `extra_kwargs.max_tokens` is adopted here |
 
 #### Provider notes
 
@@ -113,7 +117,8 @@ The default agents (`code_agent`, `tool_agent`) start with `web_search`, `wikipe
 
 Two run-level mechanisms keep a long agent run from overflowing the model's context window and preserve the content of very large tool outputs:
 
-- **Context hygiene** (`model.model_max_context`, default 128 000): before every model call the harness estimates the input size and, when it exceeds the window, trims the conversation — truncating the oldest observations first, then other non-essential messages — while always keeping the system prompt, the original task and the most recent steps. Raise `model_max_context` (e.g. `1000000`) for a long-context model.
+- **Context hygiene** (`model.model_max_context`, `model.max_new_tokens`): before every model call the harness computes the input budget `window - max_new_tokens - 512` (the 512 absorbs tokenizer drift) and, when the estimated conversation exceeds it, evicts messages oldest-first — tool observations, then other messages, then assistant turns — while always keeping the system prompt, the original task and the last four messages. Only as a last resort are the oldest survivors dropped.
+- **Memory off-loading** (`memory_offload`, `memory_digest_chars`, `memory_index_max_chars`): an evicted message is not deleted. Its full text is written to `memory.md` in the task's artifact directory and replaced by a short digest plus a `[block N]` pointer; a compact index of all blocks is appended to the task message, which is never trimmed, so pointers outlive the messages that carried them. The agent recovers a block with `search_artifact(pattern="[block 3]")` or `read_artifact`. Texts under 800 characters are never off-loaded. Needs `artifact_spill`; in closed-book runs (no tools) evicted text is replaced by a plain note.
 - **Artifact spill-over** (`artifact_spill`, `tool_output_max_chars`): when a tool returns more than `tool_output_max_chars` characters (default 20 000; `wikipedia_search` uses 50 000), the full text is written to `results/<task_id>_artifacts/<repetition>/` and the observation carries a short preview plus a banner naming the file. The agent then uses `search_artifact` (grep-like), `read_artifact` (read a line range) or `list_artifacts` (list the files) to recover the rest. With `artifact_spill: false`, oversized outputs are truncated in place instead (the pre-artifact behaviour) and the retrieval tools are not added.
 
 ### Environment variables
@@ -152,7 +157,8 @@ The task file referenced by `task_file` has its own schema, documented in [`../d
     "model_id": "openrouter/qwen/qwen3.7-flash",
     "api_key_env": "OPENROUTER_API_KEY",
     "extra_kwargs": { "temperature": 0.2 },
-    "model_max_context": 128000
+    "max_new_tokens": 16384,
+    "model_max_context": 256000
   },
   "judge": {
     "model_id": "openrouter/qwen/qwen3.7-flash",

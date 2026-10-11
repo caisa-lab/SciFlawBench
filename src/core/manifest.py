@@ -166,6 +166,7 @@ def build_run_signature(conf: RunConfig, tasks: list[Any]) -> dict[str, Any]:
             "extra_kwargs": conf.model.extra_kwargs,
             "code_block_tags": list(conf.model.code_block_tags) if conf.model.code_block_tags else None,
             "model_max_context": conf.model.model_max_context,
+            "max_new_tokens": conf.model.max_new_tokens,
         },
         "judge": judge_fingerprint(conf),
         "tools": sorted((tool.model_dump(mode="json") for tool in conf.tool_configs), key=lambda t: t["tool_name"]),
@@ -173,6 +174,9 @@ def build_run_signature(conf: RunConfig, tasks: list[Any]) -> dict[str, Any]:
         "closed_book": conf.closed_book,
         "artifact_spill": conf.artifact_spill,
         "tool_output_max_chars": conf.tool_output_max_chars,
+        "memory_offload": conf.memory_offload,
+        "memory_digest_chars": conf.memory_digest_chars,
+        "memory_index_max_chars": conf.memory_index_max_chars,
         "repetitions_per_task": conf.repetitions_per_task,
         "task_timeout_s": conf.task_timeout_s,
     }

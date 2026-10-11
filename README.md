@@ -24,7 +24,7 @@ task file (.jsonl) -> one process per task -> agent + tools -> verifiers -> resu
 Each task runs in its own process under a wall-clock timeout and writes its own result file. Verifiers grade either the final answer (deterministic
 checks) or the whole run trace (an LLM judge), and the harness aggregates every recorded run into the overall and per-failure-mode scores — see [Scoring](#scoring).
 
-Two mechanisms keep a long run inside the model's context window. **Context hygiene** trims the oldest observations before every model call so the input fits `model.model_max_context` (default 128 000 tokens; raise it for a long-context model). **Artifact spill-over** writes any tool output larger than `tool_output_max_chars` to a per-task artifact directory, leaving the agent a short preview plus the `search_artifact`/`read_artifact`/`list_artifacts` tools to recover the rest — so a large page or result set is never simply lost to a truncation.
+Two mechanisms keep a long run inside the model's context window. **Context hygiene** keeps every model call within `model_max_context - max_new_tokens` (the window is auto-detected, or set in the config), evicting the oldest observations first; evicted text is **off-loaded** to a per-task `memory.md` with a pointer left behind, so nothing is lost. **Artifact spill-over** writes any tool output larger than `tool_output_max_chars` to a per-task artifact directory, leaving the agent a short preview plus the `search_artifact`/`read_artifact`/`list_artifacts` tools to recover the rest — so a large page or result set is never simply lost to a truncation.
 
 ## Repository overview
 

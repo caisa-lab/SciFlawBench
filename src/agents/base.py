@@ -7,6 +7,7 @@ from agents.prompts import load_prompt_templates
 from core.config import ModelConfig
 from core.events import EventWatcher
 from models.base import build_model
+from models.memory import MemoryOffloader
 from tools.artifacts import (
     DEFAULT_TOOL_OUTPUT_MAX_CHARS,
     WIKIPEDIA_OUTPUT_CAP,
@@ -40,6 +41,7 @@ def build_agent(
     closed_book: bool = False,
     artifact_store: ArtifactStore | None = None,
     tool_output_max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+    memory_offloader: MemoryOffloader | None = None,
 ) -> BuiltAgent:
     """
     builds an agent from the specified agent_id and model conf along with the associated watcher class
@@ -57,9 +59,10 @@ def build_agent(
             and the `search_artifact`/`read_artifact`/`list_artifacts` tools are added. When
             None, caps still apply but overflow is truncated in place instead of spilled.
         tool_output_max_chars (int): characters a tool may return before its output is capped.
+        memory_offloader (MemoryOffloader | None): spills context evicted by the trimmer to the task's memory
+            file (read back through the artifact tools); None just replaces evicted text with a note.
 
     """
-    model = build_model(model_conf, watcher)
     definition = agent_registry.create(agent_id)
     prompts = load_prompt_templates(definition.prompt_path)
     overrides = resolve_tools(definition.tools, tool_overrides)
@@ -86,6 +89,10 @@ def build_agent(
                 WrappedTool(wrapped_tool=ReadArtifactTool(store), watcher=watcher),
                 WrappedTool(wrapped_tool=ListArtifactsTool(store), watcher=watcher),
             ]
+
+    # Evicted context is only spilled when the agent has the retrieval tools to read it back.
+    retrievable = bool(tools) and store is not None
+    model = build_model(model_conf, watcher, offloader=memory_offloader if retrievable else None)
 
     # TODO: for indentations, we can also use pre-commit with black, I can set that up
     # TODO: make this an elif with else for raise ValueError in case agent_type is neither code nor search

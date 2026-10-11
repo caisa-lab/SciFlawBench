@@ -11,10 +11,13 @@ from core.config import ModelConfig
 from core.events import EventWatcher
 from models.context import (
     CONTEXT_TRIM_RESERVE,
+    compute_input_budget,
     count_message_tokens,
     estimate_tokens,
+    resolve_context_window,
     trim_messages_to_budget,
 )
+from models.memory import MemoryOffloader
 
 
 class WrappedModel(Model):
@@ -23,8 +26,10 @@ class WrappedModel(Model):
     gets used for
 
     It also performs context hygiene: when `model_max_context` is set, the messages handed to
-    the underlying model are trimmed to fit that window (old observations are truncated
-    oldest-first) so a long run never overflows the model's context.
+    the underlying model are trimmed to fit `model_max_context - max_new_tokens - reserve_tokens`
+    (old observations are evicted oldest-first) so a long run never overflows the model's context.
+    When a `MemoryOffloader` is given, evicted messages are spilled to the task's memory file
+    and replaced by a pointer, instead of being lost.
     """
 
     def __init__(
@@ -33,6 +38,8 @@ class WrappedModel(Model):
         watcher: EventWatcher,
         model_max_context: int | None = None,
         reserve_tokens: int = CONTEXT_TRIM_RESERVE,
+        max_new_tokens: int | None = None,
+        offloader: MemoryOffloader | None = None,
     ):
         super().__init__()
 
@@ -41,9 +48,9 @@ class WrappedModel(Model):
 
         self._last_logged_len = 0
 
-        # Budget for the *input*: the declared window minus room reserved for the response.
-        context = int(model_max_context) if model_max_context else 0
-        self._context_budget = max(0, context - int(reserve_tokens or 0)) if context else 0
+        self._offloader = offloader
+        # Budget for the *input*: the window minus the response allowance and the estimation reserve.
+        self._context_budget = compute_input_budget(model_max_context, max_new_tokens, reserve_tokens)
 
     def generate(
         self,
@@ -70,6 +77,7 @@ class WrappedModel(Model):
             "prompt_tokens_estimate": count_message_tokens(messages, estimate_tokens),
             "context_budget": self._context_budget or None,
             "context_trimmed": trimmed,
+            "memory_blocks": self._offloader.snapshot()["blocks"] if self._offloader else 0,
             "stop_sequences": stop_sequences,
             "response_format": response_format,
             "tools_to_call_from": [getattr(t, "name", t) for t in tools_to_call_from] if tools_to_call_from else [],
@@ -100,22 +108,28 @@ class WrappedModel(Model):
         if before <= self._context_budget:
             return messages, False
         try:
-            messages = trim_messages_to_budget(messages, self._context_budget)
+            messages = trim_messages_to_budget(messages, self._context_budget, offloader=self._offloader)
         except Exception:  # noqa: BLE001 - trimming is best-effort, never fatal
             return messages, False
         return messages, True
 
 
-def build_model(conf: ModelConfig, watcher: EventWatcher) -> WrappedModel:
+def build_model(conf: ModelConfig, watcher: EventWatcher, offloader: MemoryOffloader | None = None) -> WrappedModel:
     """
     builds a wrapped model from the provided model config
 
     Args:
         conf (ModelConfig): configuration needed to provision the model instance
         watcher (EventWatcher): provided Event watcher which wraps around all model calls and records inputs/outputs
+        offloader (MemoryOffloader | None): where context evicted by the trimmer is spilled; None just truncates it
 
     Returns (WrappedModel): wrapped model object to be used by the smolagent
     """
+
+    # `max_new_tokens` caps every generation step (it is also reserved out of the input budget below)
+    extra_kwargs = dict(conf.extra_kwargs)
+    if conf.max_new_tokens and conf.provider.lower() != "fake_model":
+        extra_kwargs["max_tokens"] = conf.max_new_tokens
 
     match conf.provider.lower():
         case "litellm":
@@ -123,15 +137,13 @@ def build_model(conf: ModelConfig, watcher: EventWatcher) -> WrappedModel:
 
             litellm.suppress_debug_info = True
 
-            model = LiteLLMModel(
-                model_id=conf.model_id, api_base=conf.api_base, api_key=conf.api_key, **conf.extra_kwargs
-            )
+            model = LiteLLMModel(model_id=conf.model_id, api_base=conf.api_base, api_key=conf.api_key, **extra_kwargs)
         case "openai_server":
             model = OpenAIServerModel(
-                model_id=conf.model_id, api_base=conf.api_base, api_key=conf.api_key, **conf.extra_kwargs
+                model_id=conf.model_id, api_base=conf.api_base, api_key=conf.api_key, **extra_kwargs
             )
         case "hf_api":
-            model = InferenceClientModel(model_id=conf.model_id, api_key=conf.api_key, **conf.extra_kwargs)
+            model = InferenceClientModel(model_id=conf.model_id, api_key=conf.api_key, **extra_kwargs)
         case "fake_model":  # this branch is only for testing
             from tests.fakes.models import ScriptedModel
 
@@ -139,14 +151,15 @@ def build_model(conf: ModelConfig, watcher: EventWatcher) -> WrappedModel:
         case _:
             raise ValueError(f"Got an unsupported model Provider: {conf.provider}")
 
-    # Reserve room for the response before trimming the input: when the config pins
-    # `max_tokens`, keep that many tokens free on top of the estimation reserve.
-    max_tokens = conf.extra_kwargs.get("max_tokens")
-    reserve = CONTEXT_TRIM_RESERVE + (int(max_tokens) if isinstance(max_tokens, int) else 0)
+    context_window = resolve_context_window(
+        conf.provider.lower(), conf.model_id, conf.api_base, conf.api_key, explicit=conf.model_max_context
+    )
 
     return WrappedModel(
         wrapped_model=model,
         watcher=watcher,
-        model_max_context=conf.model_max_context,
-        reserve_tokens=reserve,
+        model_max_context=context_window,
+        reserve_tokens=CONTEXT_TRIM_RESERVE,
+        max_new_tokens=conf.max_new_tokens,
+        offloader=offloader,
     )

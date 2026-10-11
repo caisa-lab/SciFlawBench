@@ -47,3 +47,21 @@ def test_disabled_store_does_not_add_artifact_tools(tmp_path, monkeypatch):
     store = ArtifactStore(tmp_path / "artifacts", enabled=False)
     agent = _build(monkeypatch, store)
     assert ARTIFACT_TOOLS.isdisjoint(set(agent.agent.tools))
+
+
+def test_offloader_is_attached_only_when_artifacts_are_retrievable(tmp_path, monkeypatch):
+    from models.memory import MemoryOffloader
+
+    store = ArtifactStore(tmp_path / "artifacts")
+    offloader = MemoryOffloader(store)
+    monkeypatch.setenv("FAKE_KEY", "x")
+    args = ("code_agent", _model(), EventWatcher(task_id=1, sink=lambda event: None), {}, [])
+
+    with_store = build_agent(*args, artifact_store=store, memory_offloader=offloader)
+    assert with_store.agent.model._offloader is offloader
+
+    without_store = build_agent(*args, artifact_store=None, memory_offloader=offloader)
+    assert without_store.agent.model._offloader is None
+
+    closed_book = build_agent(*args, closed_book=True, artifact_store=store, memory_offloader=offloader)
+    assert closed_book.agent.model._offloader is None

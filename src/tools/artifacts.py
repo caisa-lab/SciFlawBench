@@ -125,6 +125,31 @@ class ArtifactStore:
                 self._append_manifest(rel_path, tool_name, args, len(data), len(data.splitlines()))
         return ArtifactRef(path, rel_path, len(data), max(1, len(data.splitlines())), created)
 
+    def save_named(self, name: str, text: str, *, tool_name: str = "memory", args: dict | None = None) -> ArtifactRef:
+        """Write `text` to a caller-chosen file under the current scope, overwriting it each call.
+
+        Keeps a growing document (the off-loaded agent memory) at a stable path that the
+        injected pointers and the agent can refer to.
+        """
+        if not self.enabled:
+            raise ArtifactError("artifact store is disabled")
+        data = text if isinstance(text, str) else str(text)
+        if len(data.encode("utf-8", "replace")) > self.max_artifact_bytes:
+            raise ArtifactError("artifact exceeds the maximum size")
+
+        filename = _slug(name)
+        if not filename.endswith(_ARTIFACT_EXTENSIONS):
+            filename += ".txt"
+        path = self._base_dir() / filename
+        rel_path = path.relative_to(self.root).as_posix()
+
+        with self._lock:
+            created = not path.exists()
+            path.write_text(data, encoding="utf-8")
+            if created:
+                self._append_manifest(rel_path, tool_name, args, len(data), len(data.splitlines()))
+        return ArtifactRef(path, rel_path, len(data), max(1, len(data.splitlines())), created)
+
     def _append_manifest(self, rel_path, tool_name, args, chars, lines) -> None:
         entry = {
             "time": datetime.now(UTC).isoformat(),
