@@ -313,7 +313,44 @@
   }
   .logo-tile.lamar img{ width: 168px; height: 168px; }
   .logo-tile.physics img{ width: 130px; height: auto; }
+  /* ---------- research agenda ---------- */
 
+  .contrib-table{
+    width: 100%;
+    border-collapse: collapse;
+    margin: 22px 0 26px;
+    font-size: 0.98rem;
+  }
+  .contrib-table th,
+  .contrib-table td{
+    text-align: left;
+    vertical-align: top;
+    padding: 14px 16px 14px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .contrib-table thead th{
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--red);
+    border-bottom: 1px solid var(--ink-soft);
+  }
+  .contrib-table tbody th{
+    width: 34%;
+    font-weight: 600;
+  }
+  .contrib-table td{ color: var(--ink-soft); }
+  .research-list{
+    margin: 0 0 16px;
+    padding-left: 1.2em;
+    max-width: 62ch;
+    color: var(--ink-soft);
+  }
+  .research-list li{ margin-bottom: 4px; }
+
+  @media (max-width: 560px){
+    .contrib-table tbody th{ width: 40%; }
+  }
   /* ---------- footer ---------- */
 
   footer{
@@ -357,6 +394,7 @@
       <div class="name">SciFlaw<span>Bench</span></div>
       <nav>
         <a href="#purpose">Purpose</a>
+        <a href="#research">Research</a>
         <a href="#harness">Harness</a>
         <a href="#contribute">Contribute</a>
         <a href="#links">Docs</a>
@@ -411,11 +449,56 @@
       </div>
     </div>
   </section>
+  <section id="research">
+    <div class="wrap section-grid">
+      <div>
+        <p class="kicker">§3 — research agenda</p>
+        <h2>What does scientific competence consist of, and what makes it possible?</h2>
+        <p class="lede">SciFlawBench asks what it means for an AI system to carry out a scientific investigation competently, and which capabilities make that possible. Three components each do a distinct job; the full contribution lies in the connections between them.</p>
 
+        <table class="contrib-table">
+          <thead>
+            <tr>
+              <th scope="col">Component</th>
+              <th scope="col">Scientific contribution</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Taxonomy of evaluation metrics</th>
+              <td>Establishes what scientific competence consists of, which aspects existing metrics measure, and what those measurements leave unresolved.</td>
+            </tr>
+            <tr>
+              <th scope="row">SciFlawBench / workflow testing</th>
+              <td>Creates controlled situations that distinguish successful execution from scientifically justified reasoning and conclusions.</td>
+            </tr>
+            <tr>
+              <th scope="row">Reasoning primitives and architectural interventions</th>
+              <td>Identifies the capabilities responsible for success or failure, then tests whether particular representations, learning methods, or architectures improve them.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>From measurement to model development</h3>
+        <p>A taxonomy becomes far more consequential when it reveals that apparently successful agents fail an important dimension of scientific work. A benchmark becomes more consequential when its failures guide an intervention that demonstrably helps.</p>
+        <p>Consider a workflow that executes correctly and reproduces an expected number while relying on an invalid assumption. The failure could concern any of the following, and these are candidate explanations to be distinguished experimentally:</p>
+        <ul class="research-list">
+          <li>maintaining assumptions across steps,</li>
+          <li>tracking evidence,</li>
+          <li>recognising contradictions, or</li>
+          <li>deciding when additional testing is necessary.</li>
+        </ul>
+        <p>The difficult, and most valuable, step is establishing when a failure genuinely implicates architecture. Better prompting, tools, training data, or workflow design might also resolve it. Controlled comparisons make it possible to defend a claim about what the model itself needs, which is how this work can inform model development while remaining grounded in scientific practice.</p>
+      </div>
+      <div>
+        <p class="note">The contribution is the connection: a taxonomy that exposes hidden failures, a benchmark that localises them, and interventions that demonstrably help.</p>
+      </div>
+    </div>
+  </section>
   <section id="harness">
     <div class="wrap section-grid">
       <div>
-        <p class="kicker">§3 — the harness</p>
+        <p class="kicker">§4 — the harness</p>
         <h2>Run the benchmark yourself</h2>
         <p>The harness handles dispatching agents against tasks, timing out runs, and scoring the result — you bring a model and a config file. It supports code-writing agents and tool-calling agents out of the box, with search tools (arXiv, Wikipedia, SerpAPI) available during a run.</p>
         <p class="mono">git clone git@github.com:caisa-lab/SciFlawBench.git</p>
@@ -429,7 +512,7 @@
   <section id="contribute">
     <div class="wrap section-grid">
       <div>
-        <p class="kicker">§4 — how to contribute</p>
+        <p class="kicker">§5 — how to contribute</p>
         <h2>Four steps to get involved</h2>
         <div class="steps">
           <div class="step">
@@ -466,7 +549,7 @@
 
   <section id="links">
     <div class="wrap">
-      <p class="kicker">§5 — documentation &amp; links</p>
+      <p class="kicker">§6 — documentation &amp; links</p>
       <h2>Everything in one place</h2>
       <div class="links">
         <a class="link-card" href="https://github.com/caisa-lab/SciFlawBench" target="_blank" rel="noopener">
@@ -506,7 +589,7 @@
   <section id="team">
     <div class="wrap section-grid">
       <div>
-        <p class="kicker">§6 — collaborators &amp; contact</p>
+        <p class="kicker">§7 — collaborators &amp; contact</p>
         <h2>Who's behind this</h2>
         <div class="logo-strip">
           <div class="logo-tile lamar"><img src="data:image/jpeg;base64,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" alt="Lamar logo"></div>
