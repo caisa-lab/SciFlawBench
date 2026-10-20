@@ -94,8 +94,6 @@ def test_basic_json_ouptut():
     assert not result.passed
 
 
-
-
 def test_non_string_outputs_are_graded():
     # a code agent may hand back a python object rather than text, e.g. final_answer((2.7, 3.2))
     numeric = verifier_registry.get("content:numeric_match")

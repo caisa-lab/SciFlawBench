@@ -4,7 +4,11 @@
     "model_id": "openrouter/qwen/qwen3.7-flash",
     "api_key_env": "OPENROUTER_API_KEY"
   },
-  "task_file": "tasks.jsonl",
+  "judge": {
+    "model_id": "openrouter/qwen/qwen3.7-flash",
+    "api_key_env": "OPENROUTER_API_KEY"
+  },
+  "task_file": "data/example/tasks.jsonl",
   "generate_trace_reports": true,
   "max_concurrent": 3
 }
