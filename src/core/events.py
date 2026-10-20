@@ -27,7 +27,7 @@ class AgentEvent:
     """
 
     event_type: EventType
-    task_id: int
+    task_id: int | str
     payload: dict[str, Any]
     timestamp: float
 
@@ -38,7 +38,7 @@ class EventWatcher:
     events into the sink (function) its given
     """
 
-    def __init__(self, task_id: int, sink: Callable):
+    def __init__(self, task_id: int | str, sink: Callable):
         self.task_id = task_id
         self._sink = sink
 

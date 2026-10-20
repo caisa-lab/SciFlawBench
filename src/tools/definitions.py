@@ -5,6 +5,7 @@ from smolagents import DuckDuckGoSearchTool, VisitWebpageTool
 
 from core.registry import Registry
 from tools.base import WrappedTool
+from tools.filetools import DEFAULT_MAX_CHARS, DEFAULT_MAX_ROWS, ReadFileTool
 from tools.misc import CalculatorTool, CurrentTimeTool, JsonFinalAnswerTool
 from tools.searchtools import (
     ArxivSearchTool,
@@ -17,6 +18,23 @@ tool_registry = Registry("Tool")
 
 logger = logging.getLogger()
 
+# `VisitWebpageTool` truncates internally at 40 000 characters.  We disable that (by raising
+# the limit far above any real page) so the artifact output cap sees the *full* text and can
+# spill it to disk; the cap still truncates for the agent's context.
+_VISIT_WEBPAGE_MAX_OUTPUT_LENGTH = 10**9
+
+
+# Tools kept in a closed-book run. Closed-book means the model may only draw on its own
+# knowledge: no web search, no local file reads, no calculator, no task-specific tools.
+# The agent's built-in Python execution and the `final_answer` tool are supplied by
+# smolagents itself and are not affected by this list.
+CLOSED_BOOK_ALLOWED_TOOLS: frozenset[str] = frozenset()
+
+
+@tool_registry.register("read_file")
+def make_read_file_tool(watcher, max_rows: int = DEFAULT_MAX_ROWS, max_chars: int = DEFAULT_MAX_CHARS) -> WrappedTool:
+    return WrappedTool(wrapped_tool=ReadFileTool(max_rows=max_rows, max_chars=max_chars), watcher=watcher)
+
 
 @tool_registry.register("web_search")
 def make_web_search_tool(
@@ -27,8 +45,10 @@ def make_web_search_tool(
         kwargs = {"max_results": 8, "rate_limit": 1.0, "engine": engine, "api_key": key}
         return WrappedTool(wrapped_tool=SerpAPISearchTool(**kwargs), watcher=watcher)
 
-    logger.info("web_search tool created with DuckDuckGo search, which has worse results than engines accessible via \
-                serpapi ")
+    logger.info(
+        "web_search tool created with DuckDuckGo search, which has worse results than engines accessible via \
+                serpapi "
+    )
 
     return WrappedTool(wrapped_tool=DuckDuckGoSearchTool(max_results, rate_limit), watcher=watcher)
 
@@ -46,7 +66,9 @@ def make_arxiv_search_tool(watcher, operator: str = "OPERATOR EMAIL NOT SET") ->
 
 @tool_registry.register("visit_webpage")
 def make_visit_webpage_tool(watcher) -> WrappedTool:
-    return WrappedTool(wrapped_tool=VisitWebpageTool(), watcher=watcher)
+    return WrappedTool(
+        wrapped_tool=VisitWebpageTool(max_output_length=_VISIT_WEBPAGE_MAX_OUTPUT_LENGTH), watcher=watcher
+    )
 
 
 @tool_registry.register("calculator")

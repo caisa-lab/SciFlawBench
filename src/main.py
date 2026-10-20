@@ -29,7 +29,15 @@ logger = logging.getLogger(__file__)
     required=False,
     help="Determines if An extra directory should be generated for each task with markdowns of the traces",
 )
-def main(config, dry, show_trace):
+@click.option(
+    "closed_book",
+    "--closed_book",
+    is_flag=True,
+    required=False,
+    help="Run the whole benchmark in closed book mode: the agent gets no tools at all, so it can "
+    "only rely on its own knowledge (it keeps Python execution and final_answer)",
+)
+def main(config, dry, show_trace, closed_book):
     """
     entry point for running the actual benchmark with a specific config file
     """
@@ -40,6 +48,9 @@ def main(config, dry, show_trace):
 
     if show_trace:
         raw["generate_trace_reports"] = True
+
+    if closed_book:
+        raw["closed_book"] = True
 
     try:
         conf = RunConfig(**raw)

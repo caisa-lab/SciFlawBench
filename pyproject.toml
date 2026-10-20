@@ -1,7 +1,7 @@
 [project]
 name = "SciFlawBench"
 version = "0.1.0"
-description = "Agentic benchmark harness for smolagents across models"
+description = "Measuring whether AI agents can reliably complete real scientific tasks."
 requires-python = ">=3.12"
 readme = "README.md"
 
