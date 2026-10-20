@@ -7,8 +7,16 @@ from agents.prompts import load_prompt_templates
 from core.config import ModelConfig
 from core.events import EventWatcher
 from models.base import build_model
-from tools.base import ToolDef, resolve_tools
-from tools.definitions import tool_registry
+from models.memory import MemoryOffloader
+from tools.artifacts import (
+    DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+    WIKIPEDIA_OUTPUT_CAP,
+    ArtifactStore,
+    install_output_cap,
+)
+from tools.artifacttools import ListArtifactsTool, ReadArtifactTool, SearchArtifactTool
+from tools.base import ToolDef, WrappedTool, resolve_tools
+from tools.definitions import CLOSED_BOOK_ALLOWED_TOOLS, tool_registry
 
 
 @dataclass
@@ -30,6 +38,10 @@ def build_agent(
     watcher: EventWatcher,
     tool_overrides: dict[str, ToolDef],
     extra_tools: list[ToolDef | str],
+    closed_book: bool = False,
+    artifact_store: ArtifactStore | None = None,
+    tool_output_max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+    memory_offloader: MemoryOffloader | None = None,
 ) -> BuiltAgent:
     """
     builds an agent from the specified agent_id and model conf along with the associated watcher class
@@ -41,13 +53,46 @@ def build_agent(
         watcher (EventWatcher): the watcher associated with this agent, its model instance and its tools
         TODO: add tool_overrides to docstring with explanation
         extra_tools (List[ToolDef | str]): definition of extra_tools to be passed on a task basis
+        closed_book (bool): give the agent no harness tools at all (its own knowledge only)
+        artifact_store (ArtifactStore | None): per-task store for oversized tool outputs. When
+            given, every content tool's output is capped (spilling the overflow to the store)
+            and the `search_artifact`/`read_artifact`/`list_artifacts` tools are added. When
+            None, caps still apply but overflow is truncated in place instead of spilled.
+        tool_output_max_chars (int): characters a tool may return before its output is capped.
+        memory_offloader (MemoryOffloader | None): spills context evicted by the trimmer to the task's memory
+            file (read back through the artifact tools); None just replaces evicted text with a note.
 
     """
-    model = build_model(model_conf, watcher)
     definition = agent_registry.create(agent_id)
     prompts = load_prompt_templates(definition.prompt_path)
     overrides = resolve_tools(definition.tools, tool_overrides)
-    tools = [tool_registry.create(t.tool_name, watcher=watcher, **t.kwargs) for t in overrides + extra_tools]
+
+    all_tools = overrides + [t if isinstance(t, ToolDef) else ToolDef(tool_name=t) for t in extra_tools]
+    if closed_book:
+        all_tools = [t for t in all_tools if t.tool_name in CLOSED_BOOK_ALLOWED_TOOLS]
+    tools = [tool_registry.create(t.tool_name, watcher=watcher, **t.kwargs) for t in all_tools]
+
+    # Context hygiene for large outputs: cap every content tool's observation, spilling the
+    # overflow to the per-task artifact store when one is available. Closed-book runs get no
+    # tools and therefore nothing to cap.
+    store = artifact_store if getattr(artifact_store, "enabled", False) else None
+    if tools:
+        install_output_cap(
+            tools,
+            store,
+            default_cap=tool_output_max_chars,
+            overrides={"wikipedia_search": WIKIPEDIA_OUTPUT_CAP},
+        )
+        if store is not None:
+            tools = tools + [
+                WrappedTool(wrapped_tool=SearchArtifactTool(store), watcher=watcher),
+                WrappedTool(wrapped_tool=ReadArtifactTool(store), watcher=watcher),
+                WrappedTool(wrapped_tool=ListArtifactsTool(store), watcher=watcher),
+            ]
+
+    # Evicted context is only spilled when the agent has the retrieval tools to read it back.
+    retrievable = bool(tools) and store is not None
+    model = build_model(model_conf, watcher, offloader=memory_offloader if retrievable else None)
 
     # TODO: for indentations, we can also use pre-commit with black, I can set that up
     # TODO: make this an elif with else for raise ValueError in case agent_type is neither code nor search
