@@ -31,6 +31,57 @@ class BuiltAgent:
     definition: AgentDef
 
 
+# Extra Python packages a task may let the code agent import. smolagents authorises submodules one by
+# one, so a package expands to the submodules a scientific computation needs; anything not listed
+# (e.g. numpy.f2py, numpy.testing, numpy.distutils, which can call external programs) stays forbidden.
+AUTHORIZED_IMPORT_EXPANSIONS: dict[str, list[str]] = {
+    "numpy": ["numpy", "numpy.linalg", "numpy.random", "numpy.fft", "numpy.polynomial"],
+}
+
+# The executor blocks open(), so numpy's file readers/writers must not reopen that door (np.load with
+# allow_pickle=True can also execute arbitrary code). smolagents' DANGEROUS_FUNCTIONS check does not
+# cover method-style calls such as np.load(...), so the functions themselves are replaced with stubs
+# in the task's process. Not covered: ndarray methods (arr.tofile, arr.dump) on numpy's C type.
+NUMPY_FILE_IO_FUNCTIONS = [
+    "load",
+    "save",
+    "savez",
+    "savez_compressed",
+    "loadtxt",
+    "savetxt",
+    "genfromtxt",
+    "fromfile",
+    "fromregex",
+    "memmap",
+]
+
+
+def expand_authorized_imports(requested: list[str] | None) -> list[str]:
+    """Expand a task's requested packages into the module list smolagents should authorise."""
+    expanded: list[str] = []
+    for name in requested or []:
+        for module in AUTHORIZED_IMPORT_EXPANSIONS.get(name, [name]):
+            if module not in expanded:
+                expanded.append(module)
+    return expanded
+
+
+def block_numpy_file_io() -> None:
+    """Replace numpy's module-level file I/O functions with stubs that refuse to run (idempotent)."""
+    import numpy
+
+    for name in NUMPY_FILE_IO_FUNCTIONS:
+        original = getattr(numpy, name, None)
+        if original is None or getattr(original, "_file_io_blocked", False):
+            continue
+
+        def _blocked(*args, _name=name, **kwargs):
+            raise PermissionError(f"numpy.{_name} is disabled for the agent: no file access")
+
+        _blocked._file_io_blocked = True
+        setattr(numpy, name, _blocked)
+
+
 # TODO: make this thing work for multi agent setups via specifying children and parents
 def build_agent(
     agent_id: str,
@@ -42,6 +93,7 @@ def build_agent(
     artifact_store: ArtifactStore | None = None,
     tool_output_max_chars: int = DEFAULT_TOOL_OUTPUT_MAX_CHARS,
     memory_offloader: MemoryOffloader | None = None,
+    authorized_imports: list[str] | None = None,
 ) -> BuiltAgent:
     """
     builds an agent from the specified agent_id and model conf along with the associated watcher class
@@ -61,6 +113,8 @@ def build_agent(
         tool_output_max_chars (int): characters a tool may return before its output is capped.
         memory_offloader (MemoryOffloader | None): spills context evicted by the trimmer to the task's memory
             file (read back through the artifact tools); None just replaces evicted text with a note.
+        authorized_imports (list[str] | None): extra packages the code agent may import (e.g. ["numpy"]);
+            see AUTHORIZED_IMPORT_EXPANSIONS. Ignored by the tool-calling agent.
 
     """
     definition = agent_registry.create(agent_id)
@@ -100,6 +154,11 @@ def build_agent(
         kwargs = {}
         if model_conf.code_block_tags is not None:
             kwargs["code_block_tags"] = model_conf.code_block_tags
+        extra_imports = expand_authorized_imports(authorized_imports)
+        if extra_imports:
+            kwargs["additional_authorized_imports"] = extra_imports
+            if "numpy" in extra_imports:
+                block_numpy_file_io()
 
         agent = CodeAgent(
             tools=tools,

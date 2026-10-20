@@ -12,6 +12,7 @@ dependencies = [
     "sympy>=1.14.0",
     "serpapi>=1.1.1",
     "pyaml>=26.7.0",
+    "numpy>=2.5.4",
 ]
 
 [project.optional-dependencies]

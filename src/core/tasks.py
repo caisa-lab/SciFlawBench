@@ -48,6 +48,7 @@ class TaskDef(BaseModel):
     validators: list[VerifierDef] = Field(default_factory=list)
     failure_modes: FailureModes  # what the task is designed to probe; drives per-mode scoring
     closed_book: bool = False  # for the individual task flag
+    authorized_imports: list[str] = Field(default_factory=list)  # extra packages the code agent may import, e.g. ["numpy"]
 
     repetition: int = 1  # for multiple runs of the same tasks
 
@@ -230,6 +231,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
             artifact_store=artifact_store,
             tool_output_max_chars=run_config.tool_output_max_chars,
             memory_offloader=memory_offloader,
+            authorized_imports=task.authorized_imports,
         )
         out = built_agent.watcher("agent", built_agent.definition.name, built_agent.agent.run, prompt)
         success = True

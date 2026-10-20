@@ -66,12 +66,13 @@ A submission can require a particular tool call, but the harness has no determin
 `code_agent` runs the Python it writes inside smolagents' local executor. That executor is a *containment* for the tool surface, not a security sandbox, and it is deliberately narrow:
 
 * **Imports are restricted** to a small allowlist of standard-library modules: `collections`, `datetime`, `itertools`, `math`, `queue`, `random`, `re`, `stat`, `statistics`, `time`, `unicodedata`.
+* **numpy is opt-in per task.** A task line with `"authorized_imports": ["numpy"]` lets the agent import `numpy` and its `linalg`, `random`, `fft` and `polynomial` submodules. numpy's file readers and writers (`np.load`, `np.save`, `np.loadtxt`, `np.savetxt`, `np.genfromtxt`, `np.fromfile`, `np.memmap`, …) are disabled, since the executor has no file access.
 * `open()`, `eval`-style builtins and shell access are **not** available.
-* Consequently `numpy`, `pandas`, `matplotlib`, `astropy`, `rdkit`, `Bio`/`BioPython` and friends **cannot be imported today**.
+* Consequently `pandas`, `matplotlib`, `astropy`, `rdkit`, `Bio`/`BioPython` and friends **cannot be imported today** (numpy only with the opt-in above).
 
 Practical consequences for item design:
 
-* An item that needs to read a supplied file must include the `read_file` tool, and should be written so the arithmetic is doable with the standard-library modules above (or a tool).
+* An item that needs to read a supplied file must include the `read_file` tool, and should be written so the arithmetic is doable with the standard-library modules above, numpy if the task opts in, or a tool.
 * An item whose ground truth depends on a domain library is **not runnable yet**, even if the tool is listed in this document's future-work section. Note the dependency in your submission so the organizers can prioritise it.
 * Items whose deliverable is a rendered figure cannot be visually graded by the harness today; phrase the rubric around the computation, the values and the text of the trace (see [`failure-modes.md`](failure-modes.md#9-aesthetic-quality-qualitative)).
 
@@ -82,7 +83,8 @@ These names appear in contributor material and in annotations, but are **not** r
 | Requested name | Status | Workaround today |
 | -------------- | ------ | ---------------- |
 | `python_execution` | Not a tool: it is the agent's built-in capability | Nothing to declare — code execution is always available to `code_agent` |
-| `astropy`, `matplotlib`, `numpy`, `pandas` | Not importable (executor allowlist) | Re-express the computation with standard-library modules, or request a dedicated tool |
+| `numpy` | Opt-in per task | Add `"authorized_imports": ["numpy"]` to the task line |
+| `astropy`, `matplotlib`, `pandas` | Not importable (executor allowlist) | Re-express the computation with standard-library modules or numpy, or request a dedicated tool |
 | `astroquery_simbad` | Not implemented | `visit_webpage` against the SIMBAD web form / `web_search` |
 | `blast`, `primer3`, `rdkit`, `BLAST+`, `ASE`, `PyMOL`, `scikit-bio`, `LAMMPS` | Not implemented | None — request them |
 | `wget`, `curl` | Not implemented | `visit_webpage` for pages; ask for a fetch-to-disk tool if an item needs files on disk |
