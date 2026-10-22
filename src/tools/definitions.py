@@ -7,6 +7,7 @@ from core.registry import Registry
 from tools.base import WrappedTool
 from tools.filetools import DEFAULT_MAX_CHARS, DEFAULT_MAX_ROWS, ReadFileTool
 from tools.misc import CalculatorTool, CurrentTimeTool, JsonFinalAnswerTool
+from tools.numerics import NumericsTool
 from tools.searchtools import (
     ArxivSearchTool,
     ImprovedWikipediaSearchTool,
@@ -74,6 +75,11 @@ def make_visit_webpage_tool(watcher) -> WrappedTool:
 @tool_registry.register("calculator")
 def make_calculator_tool(watcher) -> WrappedTool:
     return WrappedTool(wrapped_tool=CalculatorTool(), watcher=watcher)
+
+
+@tool_registry.register("numerics")
+def make_numerics_tool(watcher) -> WrappedTool:
+    return WrappedTool(wrapped_tool=NumericsTool(), watcher=watcher)
 
 
 @tool_registry.register("json_answer_tool")
