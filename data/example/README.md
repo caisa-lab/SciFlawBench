@@ -17,6 +17,7 @@ Optional fields let a task do more than the minimum:
 
 - `extra_tools` — additional tool definitions made available for the task, given either as `{"tool_name": ..., "kwargs": {...}}` objects or as bare tool-name strings. Only tools the agent does not already have: smolagents rejects duplicate tool names, so declaring a default tool here fails the run. See the tool list in [`../../examples/README.md`](../../examples/README.md#tool-overrides).
 - `validators` — the correctness criteria applied to the agent's output. **This is where a task's expected answer lives**: there is no separate reference-answer field, so every task should carry the expected values in its validator kwargs.
+- `sources` — bookkeeping only: a list of `{"url": ..., "note": ...}` objects, one per source used to verify the task's ground truth. `note` says what the source shows (for example the value found and the date it was consulted). It is stored for traceability and is **not used by the harness or the evaluation**. Use `[]` when there is none.
 - `closed_book` — run just this task with no harness tools.
 - `repetition` — set by the harness when the run is dispatched; **do not author it by hand**.
 
