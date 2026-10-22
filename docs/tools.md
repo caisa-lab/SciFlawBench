@@ -17,6 +17,7 @@ Every tool named in an item submission must match a name from this table. Do not
 | `visit_webpage` | – | yes | Fetches a URL (20 s timeout) and returns the page as Markdown. Its internal 40 000-character limit is disabled so the artifact output cap governs and an oversized page is spilled rather than lost |
 | `calculator` | – | yes | Evaluates a `sympy` expression in a subprocess limited to 5 CPU-seconds, 1 GiB and a 10 s wall clock; rejects expressions longer than 500 characters |
 | `current_time` | – | yes | Returns the current local time |
+| `numerics` | – | **no** — opt-in | Runs a fixed numpy operation on numbers the agent passes in: `solve`, `inverse`, `symmetric_eigenvalues`, `least_squares_fit` (with optional `sigma` or full `covariance`) and `sample_summary` (seeded draws from normal, uniform, lognormal, log-uniform, exponential or Poisson distributions, returned as summary statistics). Inputs are numbers and nested lists only (no code, files or expressions); matrices up to 500×500 (inverse 30×30), up to 10⁶ values or samples, at most 1,000 numbers per returned list |
 | `read_file` | `max_rows` (`50`), `max_chars` (`20000`) | **no** — opt-in | Renders CSV/TSV/PSV as tables, pretty-prints JSON, summarises JSONL, lists directories, and returns other text files as-is. Refuses binaries and files over 8 MB |
 | `json_answer_tool` | `required_fields` (`[]`) | **no** — opt-in | Validates that a proposed final answer is JSON containing the required keys. It does **not** submit the answer: the agent still has to call `final_answer` |
 | `search_artifact` | `pattern`, `path`, `regex`, `ignore_case`, `context_lines`, `max_matches` | **harness-provided** | grep-like search inside a spilled tool output (or across all of the current task's outputs). Added automatically when `artifact_spill` is on |
@@ -82,7 +83,7 @@ These names appear in contributor material and in annotations, but are **not** r
 | Requested name | Status | Workaround today |
 | -------------- | ------ | ---------------- |
 | `python_execution` | Not a tool: it is the agent's built-in capability | Nothing to declare — code execution is always available to `code_agent` |
-| `astropy`, `matplotlib`, `numpy`, `pandas` | Not importable (executor allowlist) | Re-express the computation with standard-library modules, or request a dedicated tool |
+| `astropy`, `matplotlib`, `numpy`, `pandas` | Not importable (executor allowlist) | Re-express the computation with standard-library modules, use the `numerics` tool for its numpy operations, or request a dedicated tool |
 | `astroquery_simbad` | Not implemented | `visit_webpage` against the SIMBAD web form / `web_search` |
 | `blast`, `primer3`, `rdkit`, `BLAST+`, `ASE`, `PyMOL`, `scikit-bio`, `LAMMPS` | Not implemented | None — request them |
 | `wget`, `curl` | Not implemented | `visit_webpage` for pages; ask for a fetch-to-disk tool if an item needs files on disk |
