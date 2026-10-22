@@ -55,6 +55,10 @@ class ModelConfig(BaseModel):
     # `extra_kwargs` is adopted here for backwards compatibility.
     max_new_tokens: int | None = 16_384
 
+    # set to False for models that reject the `stop` parameter but are missing from smolagents' hard-coded list
+    # (o3, o4, gpt-5*, grok-*); None leaves the decision to smolagents
+    supports_stop: bool | None = None
+
     _api_key: str = PrivateAttr()
 
     @field_validator("model_max_context", "max_new_tokens")

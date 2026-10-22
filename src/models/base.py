@@ -151,6 +151,15 @@ def build_model(conf: ModelConfig, watcher: EventWatcher, offloader: MemoryOfflo
         case _:
             raise ValueError(f"Got an unsupported model Provider: {conf.provider}")
 
+    if conf.supports_stop is not None:
+        # smolagents reads stop support from a property, so swap in a subclass that reports the configured value;
+        # without stop support it drops the parameter and cuts the output at the stop sequences itself
+        model.__class__ = type(
+            model.__class__.__name__,
+            (model.__class__,),
+            {"supports_stop_parameter": property(lambda self: conf.supports_stop)},
+        )
+
     context_window = resolve_context_window(
         conf.provider.lower(), conf.model_id, conf.api_base, conf.api_key, explicit=conf.model_max_context
     )
