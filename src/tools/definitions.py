@@ -5,6 +5,7 @@ from smolagents import DuckDuckGoSearchTool, VisitWebpageTool
 
 from core.registry import Registry
 from tools.base import WrappedTool
+from tools.cosmology import CosmologyTool
 from tools.filetools import DEFAULT_MAX_CHARS, DEFAULT_MAX_ROWS, ReadFileTool
 from tools.misc import CalculatorTool, CurrentTimeTool, JsonFinalAnswerTool
 from tools.numerics import NumericsTool
@@ -86,6 +87,11 @@ def make_numerics_tool(watcher) -> WrappedTool:
 @tool_registry.register("significance")
 def make_significance_tool(watcher) -> WrappedTool:
     return WrappedTool(wrapped_tool=SignificanceTool(), watcher=watcher)
+
+
+@tool_registry.register("cosmology")
+def make_cosmology_tool(watcher) -> WrappedTool:
+    return WrappedTool(wrapped_tool=CosmologyTool(), watcher=watcher)
 
 
 @tool_registry.register("json_answer_tool")
