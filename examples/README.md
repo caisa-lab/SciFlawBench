@@ -111,6 +111,7 @@ Each entry **replaces** the keyword arguments of that tool for the whole run (ra
 | `json_answer_tool` | `required_fields` (`[]`) | **Not enabled by default**; validates a JSON answer against required keys. Usually added per task |
 | `numerics` | – | **Not enabled by default**; runs fixed numpy operations (linear algebra, least-squares fits, seeded sampling) on numbers the agent passes in. See [`docs/tools.md`](../docs/tools.md) |
 | `significance` | – | **Not enabled by default**; p-value ↔ σ conversions, χ² probabilities and quantiles, and exact CDFs and quantiles of common distributions, computed with scipy. See [`docs/tools.md`](../docs/tools.md) |
+| `cosmology` | – | **Not enabled by default**; distances (in Mpc), times and H(z) in a flat ΛCDM or w0waCDM cosmology, computed with astropy. See [`docs/tools.md`](../docs/tools.md) |
 | `current_time` | – | Returns the current local time |
 
 The default agents (`code_agent`, `tool_agent`) start with `web_search`, `wikipedia_search`, `visit_webpage`, `calculator`, `current_time` and `arxiv_search`. Tools listed in a task's `extra_tools` are appended on top of that list.
