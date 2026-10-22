@@ -80,6 +80,14 @@ def test_loguniform_range_and_returned_samples():
         ("sample_summary", {"distribution": "cauchy", "parameters": {}, "n": 10}, "distribution must be"),
         ("sample_summary", {"distribution": "normal", "parameters": {"mean": 0, "std": 1}, "n": 10**7}, "n must be"),
         ("solve", {"matrix": [[1]], "vector": [1], "extra": 1}, "unexpected keyword"),
+        (
+            "sample_summary",
+            {"distribution": "lognormal", "parameters": {"mean": 1000, "sigma": 1}, "n": 10},
+            "not finite",
+        ),
+        ("inverse", {"matrix": [[1e-320]]}, "not finite"),
+        ("solve", {"matrix": [[10**400]], "vector": [1]}, "too large"),
+        ("sample_summary", {"distribution": "normal", "parameters": {"mean": 10**400, "std": 1}, "n": 10}, "too large"),
         ("unknown_op", {}, "unknown operation"),
     ],
 )

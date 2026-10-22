@@ -51,6 +51,8 @@ def _array(value, name: str, ndim: int) -> np.ndarray:
             raise NumericsError(f"{name} must be a number or a (nested) list of numbers")
     try:
         array = np.array(value, dtype=float)
+    except OverflowError as exc:  # a Python int beyond the float range
+        raise NumericsError(f"{name} contains a number too large to represent") from exc
     except ValueError as exc:
         raise NumericsError(f"{name} must be rectangular (all rows the same length)") from exc
     if array.ndim != ndim:
@@ -72,9 +74,15 @@ def _square(value, name: str, max_dim: int) -> np.ndarray:
 
 
 def _number(value, name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise NumericsError(f"{name} must be a finite number")
-    return float(value)
+    try:
+        number = float(value)
+    except OverflowError as exc:  # a Python int beyond the float range
+        raise NumericsError(f"{name} is too large to represent") from exc
+    if not math.isfinite(number):
+        raise NumericsError(f"{name} must be a finite number")
+    return number
 
 
 def _small_list(value, name: str, low: float, high: float) -> list[float]:
@@ -252,10 +260,14 @@ class NumericsTool(Tool):
         if not isinstance(arguments, dict):
             return "Error: arguments must be a dict of argument names to values"
         try:
-            return json.dumps(OPERATIONS[operation](**arguments))
+            result = OPERATIONS[operation](**arguments)
         except TypeError as exc:  # missing or unexpected argument names
             return f"Error: {exc}"
         except NumericsError as exc:
             return f"Error: {exc}"
         except np.linalg.LinAlgError as exc:
             return f"Error: linear algebra failed ({exc}); the matrix may be singular"
+        try:
+            return json.dumps(result, allow_nan=False)
+        except ValueError:  # inf or nan in the result: the computation overflowed
+            return "Error: result is not finite; the inputs may be too large"
