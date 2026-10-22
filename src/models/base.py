@@ -66,11 +66,14 @@ class WrappedModel(Model):
 
         note that this will try to save only message deltas on each run
         """
+        received = len(messages)
         messages, trimmed = self._apply_context_budget(messages)
 
-        start = min(self._last_logged_len, len(messages))
-        new_messages = messages[start:]
-        self._last_logged_len = len(messages)
+        # Log only the messages added since the last call, counted before trimming: trimming can drop older
+        # messages, so a slice from the previous length would miss the newest ones. The trimmer keeps the tail.
+        added = max(0, received - self._last_logged_len)
+        new_messages = messages[len(messages) - min(added, len(messages)) :]
+        self._last_logged_len = received
         kwargs["start_payload"] = {
             "new_messages": new_messages,
             "message_count": len(messages),

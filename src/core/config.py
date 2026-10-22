@@ -99,6 +99,10 @@ class ModelConfig(BaseModel):
         return self._api_key
 
 
+# token budget for the rendered trace a judge reads, and for the trace reports (see JudgeConfig.max_trace_tokens)
+DEFAULT_MAX_TRACE_TOKENS = 500_000
+
+
 class JudgeConfig(BaseModel):
     """
     Configuration for the LLM-as-a-judge model used by the `judge:*` validators.
@@ -114,7 +118,20 @@ class JudgeConfig(BaseModel):
     api_base: str | None = None
     extra_kwargs: dict = Field(default_factory=dict)
 
+    # Token budget for the rendered trace the judge reads (estimated at ~4 characters per token). The default is half
+    # of a 1M-token window, leaving room for the rubric, the prompt and the reply; lower it for a smaller window.
+    # Above the budget the largest tool outputs and execution logs are shortened (see render_trace_markdown).
+    max_trace_tokens: int = DEFAULT_MAX_TRACE_TOKENS
+
     _api_key: str = PrivateAttr()
+
+    @field_validator("max_trace_tokens")
+    @classmethod
+    def trace_budget_is_positive(cls, v: int) -> int:
+        """Reject a non-positive budget: it would leave the judge no trace to read."""
+        if v <= 0:
+            raise ValueError("max_trace_tokens must be a positive number of tokens")
+        return v
 
     @model_validator(mode="after")
     def resolve_api_key(self) -> "JudgeConfig":

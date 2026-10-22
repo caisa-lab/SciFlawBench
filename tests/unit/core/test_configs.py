@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from core.config import ModelConfig, RunConfig
+from core.config import DEFAULT_MAX_TRACE_TOKENS, JudgeConfig, ModelConfig, RunConfig
 from core.manifest import build_run_signature
 from core.tasks import TaskDef
 
@@ -127,3 +127,12 @@ def test_run_signature_tracks_generation_and_memory_settings(tmp_path, monkeypat
 
     model = _model(max_new_tokens=1024)
     assert build_run_signature(_conf(tmp_path, monkeypatch, model=model), _tasks()) != baseline
+
+
+def test_judge_trace_budget_has_a_default_and_must_be_positive(monkeypatch):
+    monkeypatch.setenv("JUDGE_KEY", "x")
+
+    assert JudgeConfig(model_id="m", api_key_env="JUDGE_KEY").max_trace_tokens == DEFAULT_MAX_TRACE_TOKENS == 500_000
+    assert JudgeConfig(model_id="m", api_key_env="JUDGE_KEY", max_trace_tokens=100_000).max_trace_tokens == 100_000
+    with pytest.raises(ValidationError):
+        JudgeConfig(model_id="m", api_key_env="JUDGE_KEY", max_trace_tokens=0)

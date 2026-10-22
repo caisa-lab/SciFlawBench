@@ -237,3 +237,9 @@ def test_verifier_without_context_gets_a_failed_result():
     result = run_check(verifier_registry.get("judge:rubric"), "answer", rubric="RUBRIC")
     assert result.passed is False
     assert "unavailable" in result.details
+
+
+def test_prompt_tells_the_judge_that_an_omission_is_not_missing_content():
+    prompt = build_judge_prompt("Did the agent read the file?", "trace with [... 9,011 characters omitted ...]")
+
+    assert "an omission is not evidence that the agent did not see the content" in prompt

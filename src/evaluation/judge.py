@@ -25,7 +25,8 @@ any further keys."""
 
 #: Prompt skeleton: the rubric, the trace, then the hardcoded output specification.
 JUDGE_PROMPT_TEMPLATE = """You are grading the trace of an AI agent that attempted a task. Judge only what the trace
-shows; do not reward a plausible answer that the trace does not actually support.
+shows; do not reward a plausible answer that the trace does not actually support. Long outputs may be shortened and
+are marked `[... omitted ...]`; an omission is not evidence that the agent did not see the content.
 
 ## Rubric
 
@@ -149,8 +150,9 @@ class LiteLLMJudge:
     The model, endpoint and extra kwargs come from the run config's `judge` section, which is
     pinned in the run manifest, so every task in a run is graded by the same judge.
 
-    The trace is sent whole: the harness does not truncate, compress or otherwise limit it, and
-    leaves any handling of oversized requests to the API / provider.
+    The trace arrives already rendered within the judge's `max_trace_tokens` budget (see
+    `render_trace_markdown`): oversized tool outputs and execution logs are shortened there, with a
+    marker. This class sends it as is and leaves any handling of oversized requests to the API / provider.
     """
 
     def __init__(self, conf: JudgeConfig):
@@ -167,7 +169,7 @@ class LiteLLMJudge:
 
         Args:
             rubric (str): the question the judge has to answer about the trace
-            trace (str): the formatted trace to grade, sent in full
+            trace (str): the rendered trace to grade, sent as is
 
         Returns (JudgeVerdict): the parsed verdict, justification and raw reply
 
