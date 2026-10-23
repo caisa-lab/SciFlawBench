@@ -18,6 +18,10 @@ from tools.artifacttools import ListArtifactsTool, ReadArtifactTool, SearchArtif
 from tools.base import ToolDef, WrappedTool, resolve_tools
 from tools.definitions import CLOSED_BOOK_ALLOWED_TOOLS, tool_registry
 
+# Standard-library modules the code agent may import on top of smolagents' defaults. `json` lets it read the JSON
+# that tools such as `numerics` return; it reads or writes files only through file objects, and open() stays blocked.
+CODE_AGENT_EXTRA_IMPORTS = ["json"]
+
 
 @dataclass
 class BuiltAgent:
@@ -107,6 +111,7 @@ def build_agent(
             prompt_templates=prompts,
             max_steps=definition.max_steps,
             verbosity_level=LogLevel.OFF,
+            additional_authorized_imports=CODE_AGENT_EXTRA_IMPORTS,
             **kwargs,
         )
     else:

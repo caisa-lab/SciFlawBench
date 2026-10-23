@@ -66,7 +66,7 @@ A submission can require a particular tool call, but the harness has no determin
 
 `code_agent` runs the Python it writes inside smolagents' local executor. That executor is a *containment* for the tool surface, not a security sandbox, and it is deliberately narrow:
 
-* **Imports are restricted** to a small allowlist of standard-library modules: `collections`, `datetime`, `itertools`, `math`, `queue`, `random`, `re`, `stat`, `statistics`, `time`, `unicodedata`.
+* **Imports are restricted** to a small allowlist of standard-library modules: `collections`, `datetime`, `itertools`, `json`, `math`, `queue`, `random`, `re`, `stat`, `statistics`, `time`, `unicodedata`. `json` is there so the agent can read the JSON that tools such as `numerics` return; it cannot reach files, because `open()` is blocked.
 * `open()`, `eval`-style builtins and shell access are **not** available.
 * Consequently `numpy`, `pandas`, `matplotlib`, `astropy`, `rdkit`, `Bio`/`BioPython` and friends **cannot be imported today**.
 
