@@ -5,6 +5,7 @@ from smolagents import DuckDuckGoSearchTool, VisitWebpageTool
 
 from core.registry import Registry
 from tools.base import WrappedTool
+from tools.cosmology import CosmologyTool
 from tools.filetools import DEFAULT_MAX_CHARS, DEFAULT_MAX_ROWS, ReadFileTool
 from tools.misc import CalculatorTool, CurrentTimeTool, JsonFinalAnswerTool
 from tools.numerics import NumericsTool
@@ -13,6 +14,8 @@ from tools.searchtools import (
     ImprovedWikipediaSearchTool,
     SerpAPISearchTool,
 )
+from tools.significance import SignificanceTool
+from tools.sky import SkyTool
 
 # tool registry global object that will keep track of string -> factory mappings for building our tools
 tool_registry = Registry("Tool")
@@ -80,6 +83,21 @@ def make_calculator_tool(watcher) -> WrappedTool:
 @tool_registry.register("numerics")
 def make_numerics_tool(watcher) -> WrappedTool:
     return WrappedTool(wrapped_tool=NumericsTool(), watcher=watcher)
+
+
+@tool_registry.register("significance")
+def make_significance_tool(watcher) -> WrappedTool:
+    return WrappedTool(wrapped_tool=SignificanceTool(), watcher=watcher)
+
+
+@tool_registry.register("cosmology")
+def make_cosmology_tool(watcher) -> WrappedTool:
+    return WrappedTool(wrapped_tool=CosmologyTool(), watcher=watcher)
+
+
+@tool_registry.register("sky")
+def make_sky_tool(watcher) -> WrappedTool:
+    return WrappedTool(wrapped_tool=SkyTool(), watcher=watcher)
 
 
 @tool_registry.register("json_answer_tool")
