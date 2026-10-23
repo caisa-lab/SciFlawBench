@@ -10,7 +10,7 @@ It is research software, not a hardened multi-tenant service. The agent **writes
 
 ## Execution of model-generated code
 
-The core of the benchmark is smolagents' `CodeAgent`, which writes Python and executes it locally through smolagents' `LocalPythonExecutor`. That executor is **not a security boundary**: smolagents documents it as a way to restrict the surface of tools available to the model, not as a way to isolate malicious code. `CodeAgent` is built in `src/agents/base.py` without `additional_authorized_imports`, so model code may import only smolagents' base allowlist of standard-library modules (see `BASE_BUILTIN_MODULES` in `smolagents/utils.py`). That is a convenience restriction, **not** a containment guarantee.
+The core of the benchmark is smolagents' `CodeAgent`, which writes Python and executes it locally through smolagents' `LocalPythonExecutor`. That executor is **not a security boundary**: smolagents documents it as a way to restrict the surface of tools available to the model, not as a way to isolate malicious code. `CodeAgent` is built in `src/agents/base.py` with `additional_authorized_imports=CODE_AGENT_EXTRA_IMPORTS`, so model code may import only smolagents' base allowlist of standard-library modules (see `BASE_BUILTIN_MODULES` in `smolagents/utils.py`) plus `json`, which lets it parse the JSON that tools return. That is a convenience restriction, **not** a containment guarantee.
 
 Consequences and mitigations:
 
