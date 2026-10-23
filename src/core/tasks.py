@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agents.base import build_agent
-from core.config import RunConfig
+from core.config import DEFAULT_MAX_TRACE_TOKENS, RunConfig
 from core.events import AgentEvent, EventWatcher
 from core.task_ids import TaskId, hash_prompt, render_task, task_id_slug
 from evaluation.base import VerificationResult, VerifierContext, VerifierDef, run_check, wants_context
@@ -109,6 +109,15 @@ def verifier_wants_context(name: str) -> bool:
         return False  # unknown names are reported as a failed check, not here
 
 
+def trace_token_budget(run_config: RunConfig) -> int:
+    """
+    Token budget for rendering a run's trace: the judge's `max_trace_tokens`, or its default without a judge.
+
+    The judge and the per-task trace reports use the same budget, so a report shows what the judge read.
+    """
+    return run_config.judge.max_trace_tokens if run_config.judge is not None else DEFAULT_MAX_TRACE_TOKENS
+
+
 def build_verifier_context(
     task: TaskDef, prompt: str, output: Any, run_config: RunConfig, events: list[AgentEvent], success: bool = True
 ) -> VerifierContext | None:
@@ -148,7 +157,8 @@ def build_verifier_context(
             "output": output,
             "success": success,
             "full_trace": [dataclasses.asdict(event) for event in events],
-        }
+        },
+        max_tokens=trace_token_budget(run_config),
     )
 
     return VerifierContext(trace=trace, task_id=task.task_id, task=prompt, judge=judge, judge_error=judge_error)
@@ -296,7 +306,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
             os.mkdir(report_dir)
 
         report_file = report_dir / f"{task_id_slug(task.task_id)}.{task.repetition}_report.md"
-        save_markdown_report(result, report_file)
+        save_markdown_report(result, report_file, max_tokens=trace_token_budget(run_config))
 
 
 def completed_repetitions(result_file: Path) -> set[int]:
