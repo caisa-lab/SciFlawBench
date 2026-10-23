@@ -66,6 +66,25 @@ def test_conflicting_max_tokens_is_rejected():
         _model(max_new_tokens=4096, extra_kwargs={"max_tokens": 2048})
 
 
+def test_max_tokens_param_defaults_to_max_tokens():
+    assert _model().max_tokens_param == "max_tokens"
+    with pytest.raises(ValidationError):
+        _model(max_tokens_param="max_output_tokens")
+
+
+def test_legacy_extra_kwargs_max_completion_tokens_is_adopted():
+    model = _model(extra_kwargs={"max_completion_tokens": 2048})
+
+    assert (model.max_new_tokens, model.max_tokens_param) == (2048, "max_completion_tokens")
+
+
+def test_conflicting_cap_names_are_rejected():
+    with pytest.raises(ValidationError):
+        _model(extra_kwargs={"max_tokens": 2048, "max_completion_tokens": 2048})
+    with pytest.raises(ValidationError):
+        _model(max_tokens_param="max_tokens", extra_kwargs={"max_completion_tokens": 2048})
+
+
 def test_memory_offload_defaults(tmp_path, monkeypatch):
     conf = _conf(tmp_path, monkeypatch)
     assert conf.memory_offload is True
