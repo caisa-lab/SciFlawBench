@@ -13,7 +13,7 @@ Every tool named in an item submission must match a name from this table. Do not
 | ---- | ------------------ | ------------- | ----- |
 | `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests/second), `engine` (`"duckduckgo"`) | yes | SerpAPI replaces DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is not `"duckduckgo"` |
 | `wikipedia_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | yes | The operator email is sent in the request `User-Agent`, as the Wikimedia API policy asks. The query is matched against article *titles*; a partial or slightly misspelled title is **auto-resolved** to the closest matching article |
-| `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | yes | Same, for the arXiv API. Fuzzy-matches titles/abstracts and returns ids, links and abstracts |
+| `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | yes | Searches arXiv papers through [ArcXiv](https://arcxiv.org), an independent service run by coder.company, not the official arXiv API, so the queries and the operator email (in the `User-Agent`) go to that service. Fuzzy-matches titles/abstracts and returns ids, links and abstracts. 10 s timeout |
 | `visit_webpage` | – | yes | Fetches a URL (20 s timeout) and returns the page as Markdown. Its internal 40 000-character limit is disabled so the artifact output cap governs and an oversized page is spilled rather than lost |
 | `calculator` | – | yes | Evaluates a `sympy` expression in a subprocess limited to 5 CPU-seconds, 1 GiB and a 10 s wall clock; rejects expressions longer than 500 characters |
 | `current_time` | – | yes | Returns the current local time |
