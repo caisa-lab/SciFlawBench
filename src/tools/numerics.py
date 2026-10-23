@@ -236,8 +236,8 @@ OPERATIONS = {
 class NumericsTool(Tool):
     name = "numerics"
 
-    description = f"""Runs a fixed numerical operation with numpy and returns JSON. Pass numbers and (nested) lists of
-    numbers only. Operations and their arguments:
+    description = f"""Runs a fixed numerical operation with numpy and returns a JSON string (parse it with json.loads).
+    Pass numbers and (nested) lists of numbers only. Operations and their arguments:
     - solve: matrix (NxN, N <= {MAX_DIM}), vector (N) -> solution of matrix @ x = vector
     - inverse: matrix (NxN, N <= {MAX_INVERSE_DIM}) -> inverse
     - symmetric_eigenvalues: matrix (symmetric NxN, N <= {MAX_DIM}) -> eigenvalues, ascending
