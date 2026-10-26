@@ -5,6 +5,7 @@ from models.base import WrappedModel
 from models.context import (
     CONTEXT_TRIM_NOTE,
     estimate_tokens,
+    message_role,
     message_text,
     trim_messages_to_budget,
 )
@@ -122,3 +123,15 @@ def test_wrapped_model_reserves_room_for_the_response():
     model, _, events = _wrapped(model_max_context=1000, reserve_tokens=200)
     model.generate(_build_conversation(steps=6, obs_chars=4000))
     assert events[0].payload["context_budget"] == 800
+
+
+def test_logged_messages_include_the_newest_even_when_trimming_drops_older_ones():
+    # 1500 tokens cannot even hold the protected tail, so the trimmer drops whole messages and the
+    # conversation length stays the same from one call to the next
+    model, _, events = _wrapped(model_max_context=1500)
+    model.generate(_build_conversation(steps=4, obs_chars=4000))
+    model.generate(_build_conversation(steps=5, obs_chars=4000))
+
+    first, second = events[0].payload, events[2].payload
+    assert first["message_count"] == second["message_count"]
+    assert [message_role(m) for m in second["new_messages"]] == ["assistant", "tool-response"]

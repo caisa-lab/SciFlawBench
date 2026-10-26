@@ -257,3 +257,17 @@ def test_task_def_validation_error_is_not_swallowed(tmp_path, monkeypatch):
     """Sanity check that the helpers above run against real TaskDef validation."""
     with pytest.raises(ValidationError):
         TaskDef(task_id="0" * 32, task="mismatched", agent_id="code_agent", failure_modes=_FM)
+
+
+def test_judge_fingerprint_records_the_trace_budget(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_KEY", "x")
+    monkeypatch.setenv("JUDGE_KEY", "judge-secret-value")
+    task_file = _task_file(tmp_path)
+    smaller = JudgeConfig(model_id="judge-one", api_key_env="JUDGE_KEY", max_trace_tokens=100_000)
+
+    default = build_run_signature(_conf(tmp_path, task_file, judge=_judge("judge-one")), _tasks())["judge"]
+    lowered = build_run_signature(_conf(tmp_path, task_file, judge=smaller), _tasks())["judge"]
+
+    assert default["max_trace_tokens"] == 500_000
+    assert lowered["max_trace_tokens"] == 100_000
+    assert default != lowered  # a resume with a different budget is refused

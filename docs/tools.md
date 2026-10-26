@@ -54,7 +54,7 @@ Rules to remember:
 
 ### "Must use tool X"
 
-A submission can require a particular tool call, but the harness has no deterministic tool-call verifier yet: the check is a `judge:rubric` validator whose rubric names the required call and its parameters, applied to the run's trace (which contains every tool name, input and output). If your item needs a hard, mechanical assertion on the invocation log, say so in the issue tracker.
+A submission can require a particular tool call, but the harness has no deterministic tool-call verifier yet: the check is a `judge:rubric` validator whose rubric names the required call and its parameters, applied to the run's trace (which contains every tool name, input and output; very long outputs are shortened to fit the judge's `max_trace_tokens`). If your item needs a hard, mechanical assertion on the invocation log, say so in the issue tracker.
 
 ## 3. Tool versioning rules
 
