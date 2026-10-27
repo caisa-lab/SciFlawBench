@@ -4,18 +4,16 @@ An astropy-backed cosmology tool.
 It gives distances, times and the expansion rate at given redshifts in a flat ΛCDM or flat w0waCDM
 cosmology. astropy runs here, in harness code: the agent passes numbers and gets JSON back. It never handles
 astropy objects, files or code, so the code executor's restrictions are unaffected. Nothing used here
-downloads data or writes files, and astropy's internet access is switched off when the tool is loaded.
+downloads data or writes files, and astropy's internet access is switched off before astropy is first used.
+
+astropy is imported when the tool is first used, not at module level: the tool registry imports this module on
+every harness start, and importing astropy takes one to two seconds that only runs using this tool should pay.
 """
 
 import json
 import math
 
-from astropy.cosmology import FlatLambdaCDM, Flatw0waCDM
-from astropy.utils.data import conf as astropy_data_conf
 from smolagents import Tool
-
-# cosmology needs no remote data; make sure nothing in astropy tries to fetch any
-astropy_data_conf.allow_internet = False
 
 MAX_REDSHIFTS = 1_000
 MAX_REDSHIFT = 1_500.0
@@ -55,6 +53,12 @@ def _model(cosmology):
             raise CosmologyError(
                 f"{name} must lie between {low:g} and {high:g}" + (" (and above 0)" if name == "H0" else "")
             )
+
+    from astropy.cosmology import FlatLambdaCDM, Flatw0waCDM
+    from astropy.utils.data import conf as astropy_data_conf
+
+    # cosmology needs no remote data; make sure nothing in astropy tries to fetch any
+    astropy_data_conf.allow_internet = False
     if p["w0"] == -1.0 and p["wa"] == 0.0:
         return FlatLambdaCDM(H0=p["H0"], Om0=p["Om0"], Tcmb0=p["Tcmb0"])
     return Flatw0waCDM(H0=p["H0"], Om0=p["Om0"], w0=p["w0"], wa=p["wa"], Tcmb0=p["Tcmb0"])

@@ -170,6 +170,23 @@ print("ok")
     assert list(home.rglob("*")) == []  # nothing was written under the home directory
 
 
+def test_astropy_is_imported_only_when_the_tool_is_used():
+    # The registry imports every tool module at harness start, so astropy must load on first use instead, with its
+    # internet access already off. A fresh interpreter is needed: this test process has already imported astropy.
+    code = (
+        "import sys\n"
+        "import tools.definitions\n"
+        "assert 'astropy' not in sys.modules, 'astropy was imported at harness start'\n"
+        "from tools.cosmology import CosmologyTool\n"
+        "out = CosmologyTool().forward('hubble', {'cosmology': {'H0': 70, 'Om0': 0.3}, 'redshifts': [1]})\n"
+        "assert not out.startswith('Error'), out\n"
+        "from astropy.utils.data import conf\n"
+        "assert conf.allow_internet is False\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_registered_in_the_tool_registry():
     from core.events import EventWatcher
     from tools.definitions import tool_registry
