@@ -5,43 +5,56 @@ It converts coordinates between celestial frames, measures angular separations, 
 geometry questions (with astropy-healpix). astropy runs here, in harness code: the agent passes numbers and
 names from a fixed list and gets JSON back. It never handles astropy objects, maps, files or code, so the code
 executor's restrictions are unaffected. Only frames that need no downloaded data are offered, and astropy's
-internet access and automatic Earth-orientation downloads are switched off when the tool is loaded.
+internet access and automatic Earth-orientation downloads are switched off before astropy is first used.
+
+astropy and astropy-healpix are imported when the tool is first used, not at module level: the tool registry
+imports this module on every harness start, and importing astropy takes one to two seconds that only runs using
+this tool should pay.
 """
 
 import json
 import math
+from functools import cache
+from types import SimpleNamespace
 
-import astropy.units as u
-from astropy.coordinates import (
-    FK5,
-    ICRS,
-    BarycentricMeanEcliptic,
-    Galactic,
-    Supergalactic,
-    UnitSphericalRepresentation,
-)
-from astropy.utils import iers
-from astropy.utils.data import conf as astropy_data_conf
-from astropy_healpix import HEALPix
 from smolagents import Tool
-
-# none of the frames below needs remote data; make sure nothing in astropy tries to fetch any
-astropy_data_conf.allow_internet = False
-iers.conf.auto_download = False
 
 MAX_POINTS = 1_000  # positions or pixels in one call
 MAX_NSIDE = 8192
 MAX_DISC_PIXELS = 10_000_000  # largest disc a search may cover
 MAX_RETURNED = 1_000  # pixel indices returned by a disc search
 
-FRAMES = {
-    "icrs": ICRS(),
-    "fk5": FK5(equinox="J2000"),
-    "galactic": Galactic(),
-    "supergalactic": Supergalactic(),
-    "ecliptic": BarycentricMeanEcliptic(equinox="J2000"),
-}
+FRAMES = ("icrs", "fk5", "galactic", "supergalactic", "ecliptic")
 ORDERS = ("ring", "nested")
+
+
+@cache
+def _astropy() -> SimpleNamespace:
+    """The astropy pieces this tool uses, imported once on first use with remote data switched off."""
+    import astropy.units as u
+    from astropy.coordinates import (
+        FK5,
+        ICRS,
+        BarycentricMeanEcliptic,
+        Galactic,
+        Supergalactic,
+        UnitSphericalRepresentation,
+    )
+    from astropy.utils import iers
+    from astropy.utils.data import conf as astropy_data_conf
+    from astropy_healpix import HEALPix
+
+    # none of the frames below needs remote data; make sure nothing in astropy tries to fetch any
+    astropy_data_conf.allow_internet = False
+    iers.conf.auto_download = False
+    frames = {
+        "icrs": ICRS(),
+        "fk5": FK5(equinox="J2000"),
+        "galactic": Galactic(),
+        "supergalactic": Supergalactic(),
+        "ecliptic": BarycentricMeanEcliptic(equinox="J2000"),
+    }
+    return SimpleNamespace(u=u, UnitSphericalRepresentation=UnitSphericalRepresentation, HEALPix=HEALPix, frames=frames)
 
 
 class SkyError(ValueError):
@@ -75,33 +88,35 @@ def _positions(lon, lat, suffix: str = ""):
         raise SkyError(f"lon{suffix} and lat{suffix} must have the same length")
     if any(abs(b) > 90 for b in lats):
         raise SkyError(f"lat{suffix} must lie between -90 and 90 degrees")
+    u = _astropy().u
     return lons * u.deg, lats * u.deg
 
 
 def _frame(name, label: str = "frame"):
     if name not in FRAMES:
         raise SkyError(f"{label} must be one of {list(FRAMES)}")
-    return FRAMES[name]
+    return _astropy().frames[name]
 
 
-def _healpix(nside, order) -> HEALPix:
+def _healpix(nside, order):
     if isinstance(nside, bool) or not isinstance(nside, int) or not 1 <= nside <= MAX_NSIDE or nside & (nside - 1):
         raise SkyError(f"nside must be a power of 2 between 1 and {MAX_NSIDE}")
     if order not in ORDERS:
         raise SkyError('order must be "ring" or "nested"')
-    return HEALPix(nside=nside, order=order)
+    return _astropy().HEALPix(nside=nside, order=order)
 
 
 def _degrees(angles) -> list[float]:
-    return [float(a) for a in angles.to_value(u.deg)]
+    return [float(a) for a in angles.to_value(_astropy().u.deg)]
 
 
 def convert(from_frame, to_frame, lon, lat) -> dict:
     source, target = _frame(from_frame, "from_frame"), _frame(to_frame, "to_frame")
     lons, lats = _positions(lon, lat)
-    out = source.realize_frame(UnitSphericalRepresentation(lons, lats)).transform_to(target)
-    spherical = out.represent_as(UnitSphericalRepresentation)
-    return {"frame": to_frame, "lon": _degrees(spherical.lon.wrap_at(360 * u.deg)), "lat": _degrees(spherical.lat)}
+    ap = _astropy()
+    out = source.realize_frame(ap.UnitSphericalRepresentation(lons, lats)).transform_to(target)
+    spherical = out.represent_as(ap.UnitSphericalRepresentation)
+    return {"frame": to_frame, "lon": _degrees(spherical.lon.wrap_at(360 * ap.u.deg)), "lat": _degrees(spherical.lat)}
 
 
 def separation(frame, lon1, lat1, lon2, lat2) -> dict:
@@ -109,13 +124,15 @@ def separation(frame, lon1, lat1, lon2, lat2) -> dict:
     first, second = _positions(lon1, lat1, "1"), _positions(lon2, lat2, "2")
     if len(first[0]) != len(second[0]):
         raise SkyError("the two lists of positions must have the same length")
-    a = target.realize_frame(UnitSphericalRepresentation(*first))
-    b = target.realize_frame(UnitSphericalRepresentation(*second))
+    sphere = _astropy().UnitSphericalRepresentation
+    a = target.realize_frame(sphere(*first))
+    b = target.realize_frame(sphere(*second))
     return {"separation_deg": _degrees(a.separation(b))}
 
 
 def healpix_info(nside) -> dict:
     hp = _healpix(nside, "ring")
+    u = _astropy().u
     area = hp.pixel_area
     return {
         "npix": int(hp.npix),
@@ -152,7 +169,8 @@ def healpix_disc(nside, order, lon, lat, radius) -> dict:
     expected = hp.npix * (1 - math.cos(math.radians(radius_deg))) / 2
     if expected > MAX_DISC_PIXELS:
         raise SkyError(f"the disc would cover about {expected:,.0f} pixels; the limit is {MAX_DISC_PIXELS:,}")
-    found = hp.cone_search_lonlat(lon_deg * u.deg, lat_deg * u.deg, radius_deg * u.deg)
+    deg = _astropy().u.deg
+    found = hp.cone_search_lonlat(lon_deg * deg, lat_deg * deg, radius_deg * deg)
     result = {"n_pixels": int(len(found))}
     if len(found) <= MAX_RETURNED:
         result["pixels"] = sorted(int(p) for p in found)
