@@ -12,6 +12,7 @@ every harness start, and importing astropy takes one to two seconds that only ru
 
 import json
 import math
+import warnings
 
 from smolagents import Tool
 
@@ -53,6 +54,9 @@ def _model(cosmology):
             raise CosmologyError(
                 f"{name} must lie between {low:g} and {high:g}" + (" (and above 0)" if name == "H0" else "")
             )
+    if p["w0"] + p["wa"] > 0:
+        # w -> w0 + wa at early times; above 0 the dark energy would outgrow matter there
+        raise CosmologyError("w0 + wa must not be above 0, or dark energy would dominate the early universe")
 
     from astropy.cosmology import FlatLambdaCDM, Flatw0waCDM
     from astropy.utils.data import conf as astropy_data_conf
@@ -60,8 +64,15 @@ def _model(cosmology):
     # cosmology needs no remote data; make sure nothing in astropy tries to fetch any
     astropy_data_conf.allow_internet = False
     if p["w0"] == -1.0 and p["wa"] == 0.0:
-        return FlatLambdaCDM(H0=p["H0"], Om0=p["Om0"], Tcmb0=p["Tcmb0"])
-    return Flatw0waCDM(H0=p["H0"], Om0=p["Om0"], w0=p["w0"], wa=p["wa"], Tcmb0=p["Tcmb0"])
+        model = FlatLambdaCDM(H0=p["H0"], Om0=p["Om0"], Tcmb0=p["Tcmb0"])
+    else:
+        model = Flatw0waCDM(H0=p["H0"], Om0=p["Om0"], w0=p["w0"], wa=p["wa"], Tcmb0=p["Tcmb0"])
+    if model.Ode0 < 0:
+        raise CosmologyError(
+            "Om0 plus the radiation density set by Tcmb0 (and H0) exceeds 1, "
+            "so the dark-energy density would be negative"
+        )
+    return model
 
 
 def _redshifts(values) -> list[float]:
@@ -102,14 +113,19 @@ def hubble(cosmology, redshifts) -> dict:
 OPERATIONS = {"distances": distances, "times": times, "hubble": hubble}
 
 
+def _numerical(category) -> bool:
+    """Whether a warning category signals a numerical problem: numpy's RuntimeWarning or scipy's IntegrationWarning."""
+    return issubclass(category, RuntimeWarning) or category.__name__ == "IntegrationWarning"
+
+
 class CosmologyTool(Tool):
     name = "cosmology"
 
     description = f"""Distances, times and expansion rate in a flat cosmology, computed with astropy. Returns a JSON
     string (parse it with json.loads). Every operation takes `cosmology`, a dict with H0 (km/s/Mpc) and Om0,
-    optionally w0 and wa (flat w0waCDM; defaults -1 and 0, i.e. flat ΛCDM) and Tcmb0 (K; default 0, which leaves out
-    radiation), and `redshifts`, a list
-    of up to {MAX_REDSHIFTS} values from 0 to {MAX_REDSHIFT:g}. Operations:
+    optionally w0 and wa (flat w0waCDM; defaults -1 and 0, i.e. flat ΛCDM; w0 + wa must not be above 0) and Tcmb0
+    (K; default 0, which leaves out radiation; above 0 it adds photons and massless neutrinos with astropy's default
+    Neff = 3.04), and `redshifts`, a list of up to {MAX_REDSHIFTS} values from 0 to {MAX_REDSHIFT:g}. Operations:
     - distances -> comoving, angular-diameter and luminosity distance in Mpc (not Mpc/h) at each redshift, and h
     - times -> lookback time and age of the universe in Gyr at each redshift
     - hubble -> H(z) in km/s/Mpc and E(z) = H(z)/H0 at each redshift"""
@@ -128,12 +144,18 @@ class CosmologyTool(Tool):
             return f"Error: unknown operation {operation!r}; available: {', '.join(OPERATIONS)}"
         if not isinstance(arguments, dict):
             return "Error: arguments must be a dict of argument names to values"
-        try:
-            result = OPERATIONS[operation](**arguments)
-        except TypeError as exc:  # missing or unexpected argument names
-            return f"Error: {exc}"
-        except CosmologyError as exc:
-            return f"Error: {exc}"
+        # astropy's integrals report trouble as warnings and still return a number; capture them, so nothing is
+        # printed to the logs, and treat a numerical warning as a failed calculation rather than a result
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            try:
+                result = OPERATIONS[operation](**arguments)
+            except TypeError as exc:  # missing or unexpected argument names
+                return f"Error: {exc}"
+            except CosmologyError as exc:
+                return f"Error: {exc}"
+        if any(_numerical(w.category) for w in caught):
+            return "Error: the calculation did not converge for these parameters; check the cosmological parameters"
         try:
             return json.dumps(result, allow_nan=False)
         except ValueError:  # inf or nan in the result
