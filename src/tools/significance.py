@@ -5,12 +5,14 @@ It converts between p-values, Gaussian-equivalent significances and chi-squared 
 cumulative probabilities and quantiles of common distributions. scipy runs here, in harness code: the agent
 passes numbers and names from a fixed list and gets JSON back. It never handles scipy objects, files or code,
 so the code executor's restrictions are unaffected.
+
+scipy is imported inside the functions that use it, not at module level: the tool registry imports this module on
+every harness start, and importing scipy takes one to two seconds that only runs using this tool should pay.
 """
 
 import json
 import math
 
-from scipy import stats
 from smolagents import Tool
 
 MAX_VALUES = 1_000  # values or probabilities in one call, and numbers returned in one list
@@ -75,6 +77,8 @@ def _sided(value) -> str:
 
 def _distribution(distribution, parameters):
     """The frozen scipy distribution for a name and its parameters, after validating both."""
+    from scipy import stats
+
     if distribution not in DISTRIBUTIONS:
         raise SignificanceError(f"distribution must be one of {sorted(DISTRIBUTIONS)}")
     if not isinstance(parameters, dict) or set(parameters) != set(DISTRIBUTIONS[distribution]):
@@ -95,6 +99,8 @@ def _distribution(distribution, parameters):
     if distribution == "uniform":
         if p["low"] >= p["high"]:
             raise SignificanceError("low must be below high")
+        if not math.isfinite(p["high"] - p["low"]):
+            raise SignificanceError("high - low is too large to represent")
         return stats.uniform(loc=p["low"], scale=p["high"] - p["low"])
     if distribution == "loguniform":
         if not 0 < p["low"] < p["high"]:
@@ -110,12 +116,16 @@ def _distribution(distribution, parameters):
 
 
 def p_to_sigma(p, sided) -> dict:
+    from scipy import stats
+
     p_value, sided = _probability(p, "p"), _sided(sided)
     sigma = stats.norm.isf(p_value / 2 if sided == "two" else p_value)
     return {"sigma": float(sigma), "p_value": p_value, "sided": sided}
 
 
 def sigma_to_p(sigma, sided) -> dict:
+    from scipy import stats
+
     z, sided = _number(sigma, "sigma"), _sided(sided)
     p_value = 2 * stats.norm.sf(abs(z)) if sided == "two" else stats.norm.sf(z)
     if p_value == 0:
@@ -124,6 +134,8 @@ def sigma_to_p(sigma, sided) -> dict:
 
 
 def chi2_probability(chi2, dof) -> dict:
+    from scipy import stats
+
     value, dof = _number(chi2, "chi2"), _dof(dof)
     if value < 0:
         raise SignificanceError("chi2 must not be negative")
@@ -138,6 +150,8 @@ def chi2_probability(chi2, dof) -> dict:
 
 
 def chi2_quantile(probability, dof) -> dict:
+    from scipy import stats
+
     q, dof = _probability(probability, "probability"), _dof(dof)
     return {"chi2": float(stats.chi2.ppf(q, dof))}
 
@@ -151,6 +165,9 @@ def cdf(distribution, parameters, values) -> dict:
 def quantile(distribution, parameters, probabilities) -> dict:
     frozen = _distribution(distribution, parameters)
     qs = [_probability(q, "probabilities", closed=True) for q in _numbers(probabilities, "probabilities")]
+    if distribution == "poisson" and 0 in qs:
+        # scipy returns -1 here, one below the support; every probability above 0 has a proper quantile
+        raise SignificanceError("the poisson quantile needs probabilities above 0")
     return {"quantile": [float(x) for x in frozen.ppf(qs)]}
 
 
@@ -176,8 +193,8 @@ class SignificanceTool(Tool):
       two-sided Gaussian-equivalent sigma, and chi2 per degree of freedom
     - chi2_quantile: probability (0 < probability < 1), dof -> the chi-squared value with that cumulative probability
     - cdf: distribution, parameters, values (<= {MAX_VALUES}) -> P(X <= value) for each value
-    - quantile: distribution, parameters, probabilities (<= {MAX_VALUES}, each from 0 to 1) -> the value with that
-      cumulative probability
+    - quantile: distribution, parameters, probabilities (<= {MAX_VALUES}, each from 0 to 1, above 0 for poisson) ->
+      the value with that cumulative probability
     Distributions and their parameters: normal (mean, std), lognormal (mean, sigma of the log), uniform and
     loguniform (low, high), exponential (scale), poisson (lam), chi2 (dof), student_t (dof)."""
 

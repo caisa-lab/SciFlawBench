@@ -1,5 +1,7 @@
 import json
 import math
+import subprocess
+import sys
 
 import pytest
 
@@ -78,6 +80,13 @@ def test_cdf_and_quantile_of_each_distribution():
     ] == pytest.approx(1.962, abs=1e-3)
 
 
+def test_wide_ranges_and_small_poisson_probabilities_still_work():
+    wide = {"low": -1e307, "high": 1e307}
+    assert run("cdf", distribution="uniform", parameters=wide, values=[0])["cdf"] == [0.5]
+    poisson = {"lam": 3}
+    assert run("quantile", distribution="poisson", parameters=poisson, probabilities=[1e-9, 0.5])["quantile"] == [0, 3]
+
+
 def test_lists_are_accepted_up_to_the_limit():
     values = list(range(MAX_VALUES))
     out = run("cdf", distribution="normal", parameters={"mean": 0, "std": 1}, values=values)
@@ -114,6 +123,16 @@ def test_lists_are_accepted_up_to_the_limit():
         ),
         ("cdf", {"distribution": "lognormal", "parameters": {"mean": 800, "sigma": 1}, "values": [1]}, "between -700"),
         ("cdf", {"distribution": "loguniform", "parameters": {"low": 0, "high": 1}, "values": [1]}, "0 < low < high"),
+        (
+            "cdf",
+            {"distribution": "uniform", "parameters": {"low": -1e308, "high": 1e308}, "values": [0]},
+            "too large to represent",
+        ),
+        (
+            "quantile",
+            {"distribution": "poisson", "parameters": {"lam": 3}, "probabilities": [0, 0.5]},
+            "above 0",
+        ),
         ("cdf", {"distribution": "chi2", "parameters": {"dof": -1}, "values": [1]}, "dof must be an integer"),
         (
             "quantile",
@@ -144,6 +163,21 @@ def test_registered_in_the_tool_registry():
 
     significance = tool_registry.create("significance", watcher=EventWatcher("t", sink=lambda e: None))
     assert significance.name == "significance"
+
+
+def test_scipy_is_imported_only_when_the_tool_is_used():
+    # The registry imports every tool module at harness start, so scipy must load on first use instead. A fresh
+    # interpreter is needed: this test process has already imported scipy through the other tests.
+    code = (
+        "import sys\n"
+        "import tools.definitions\n"
+        "assert 'scipy' not in sys.modules, 'scipy was imported at harness start'\n"
+        "from tools.significance import SignificanceTool\n"
+        "assert not SignificanceTool().forward('p_to_sigma', {'p': 0.05, 'sided': 'two'}).startswith('Error')\n"
+        "assert 'scipy' in sys.modules\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 def test_description_says_how_to_read_the_output():
