@@ -1,6 +1,9 @@
 import os
+import socket
+import time
 
 import pytest
+import requests
 
 from tools.searchtools import (
     ArxivSearchTool,
@@ -137,6 +140,57 @@ def test_simple_arxiv_query(monkeypatch):
     assert "article markdown" in res
     assert "**title:**" in res
     assert "id:" in res
+
+
+def test_arxiv_query_sets_a_timeout(monkeypatch):
+    """The request carries a timeout, so a slow server cannot stall a run."""
+    seen = {}
+
+    class _FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"hits": []}
+
+    def _fake_get(*args, **kwargs):
+        seen.update(kwargs)
+        return _FakeResponse()
+
+    monkeypatch.setattr("tools.searchtools.requests.get", _fake_get)
+
+    ArxivSearchTool(operator="test_suite").forward(query="LLM alignment", sort="relevance", fromYear=2020)
+    assert seen["timeout"] == ArxivSearchTool.TIMEOUT_S == 10
+
+
+def test_arxiv_timeout_returns_an_error(monkeypatch):
+    """A timeout reaches the agent as an error message instead of raising."""
+
+    def _timeout(*args, **kwargs):
+        raise requests.exceptions.Timeout("read timed out")
+
+    monkeypatch.setattr("tools.searchtools.requests.get", _timeout)
+
+    res = ArxivSearchTool(operator="test_suite").forward(query="LLM alignment", sort="relevance", fromYear=2020)
+    assert "Error searching for Arxiv papers" in res
+    assert "read timed out" in res
+
+
+def test_arxiv_gives_up_on_a_server_that_never_answers(monkeypatch):
+    """End to end: a local server that accepts the connection but never replies is abandoned after the timeout."""
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        host, port = server.getsockname()
+        monkeypatch.setattr(ArxivSearchTool, "BASE_URL", f"http://{host}:{port}/api/agent/search")
+        monkeypatch.setattr(ArxivSearchTool, "TIMEOUT_S", 0.5)
+
+        start = time.monotonic()
+        res = ArxivSearchTool(operator="test_suite").forward(query="LLM alignment", sort="relevance", fromYear=2020)
+        elapsed = time.monotonic() - start
+
+    assert "Error searching for Arxiv papers" in res
+    assert elapsed < 5
 
 
 @pytest.mark.live

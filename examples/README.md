@@ -106,7 +106,7 @@ Each entry **replaces** the keyword arguments of that tool for the whole run (ra
 | ---- | ------------------ | ----- |
 | `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests per second), `engine` (`"duckduckgo"`) | SerpAPI is used instead of DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is not `"duckduckgo"` |
 | `wikipedia_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | The operator email is placed in the request `User-Agent`, as the Wikimedia API policy asks |
-| `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | Same as above, for the arXiv API |
+| `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | Searches arXiv papers through [ArcXiv](https://arcxiv.org), an independent service (not the official arXiv API), with a 10 s timeout; the operator email is placed in the request `User-Agent` |
 | `visit_webpage` | – | Fetches a URL and returns the page as Markdown |
 | `read_file` | `max_rows` (`50`), `max_chars` (`20000`) | **Not enabled by default**; add it to a task through `extra_tools` |
 | `calculator` | – | Evaluates a `sympy` expression in a resource-limited subprocess |
