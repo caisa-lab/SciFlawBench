@@ -12,6 +12,7 @@ every harness start, and importing astropy takes one to two seconds that only ru
 
 import json
 import math
+import threading
 import warnings
 
 from smolagents import Tool
@@ -112,6 +113,10 @@ def hubble(cosmology, redshifts) -> dict:
 
 OPERATIONS = {"distances": distances, "times": times, "hubble": hubble}
 
+# warnings.catch_warnings swaps the process-wide warning filters and is not thread-safe before Python 3.14, while
+# ToolCallingAgent can run tool calls in parallel threads; calls are serialised so each sees only its own warnings.
+_WARNINGS_LOCK = threading.Lock()
+
 
 def _numerical(category) -> bool:
     """Whether a warning category signals a numerical problem: numpy's RuntimeWarning or scipy's IntegrationWarning."""
@@ -146,7 +151,7 @@ class CosmologyTool(Tool):
             return "Error: arguments must be a dict of argument names to values"
         # astropy's integrals report trouble as warnings and still return a number; capture them, so nothing is
         # printed to the logs, and treat a numerical warning as a failed calculation rather than a result
-        with warnings.catch_warnings(record=True) as caught:
+        with _WARNINGS_LOCK, warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             try:
                 result = OPERATIONS[operation](**arguments)

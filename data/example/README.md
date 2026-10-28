@@ -76,7 +76,7 @@ Every verifier receives the agent's final answer as its first argument and retur
 }
 ```
 
-> IMPORTANT: A task must declare any tool it needs that the agent does not already have. The default `code_agent` / `tool_agent` ship with `web_search`, `wikipedia_search`, `visit_webpage`, `calculator`, `current_time` and `arxiv_search`. On the other hand, `read_file` and `json_answer_tool` are opt-in and have to be listed in `extra_tools`. Listing a tool the agent already has is an error: smolagents rejects duplicate tool names, so only genuinely missing tools belong in `extra_tools`. See the [tool list](../../examples/README.md#tool-overrides) for every registered tool.
+> IMPORTANT: A task must declare any tool it needs that the agent does not already have. The default `code_agent` / `tool_agent` ship with `web_search`, `wikipedia_search`, `visit_webpage`, `calculator`, `current_time` and `arxiv_search`. On the other hand, `read_file`, `json_answer_tool`, `numerics`, `significance`, `cosmology` and `sky` are opt-in and have to be listed in `extra_tools`. Listing a tool the agent already has is an error: smolagents rejects duplicate tool names, so only genuinely missing tools belong in `extra_tools`. See the [tool list](../../examples/README.md#tool-overrides) for every registered tool.
 
 Prompts that use no local files simply hash their plain text. Because the stored prompt is what gets hashed, the harness verifies `md5(task) == task_id` at load time and refuses any sample whose id no longer matches its prompt. See [`../tasks/assets/README.md`](../tasks/assets/README.md) for the full convention.
 
