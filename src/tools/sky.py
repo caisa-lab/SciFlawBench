@@ -21,7 +21,9 @@ from smolagents import Tool
 
 MAX_POINTS = 1_000  # positions or pixels in one call
 MAX_NSIDE = 8192
-MAX_DISC_PIXELS = 10_000_000  # largest disc a search may cover
+# Largest disc a search may cover. astropy-healpix's cone search time grows roughly with the square of the pixel
+# count (about 1 s at 15,000 pixels and 8 s at 50,000 here), and the harness has no per-call timeout.
+MAX_DISC_PIXELS = 50_000
 MAX_RETURNED = 1_000  # pixel indices returned by a disc search
 
 FRAMES = ("icrs", "fk5", "galactic", "supergalactic", "ecliptic")
@@ -203,7 +205,7 @@ class SkyTool(Tool):
     - healpix_pixels: nside, order ("ring" or "nested"), lon, lat -> the pixel containing each position
     - healpix_centers: nside, order, pixels -> lon and lat of each pixel centre
     - healpix_disc: nside, order, lon, lat, radius (single position) -> number of pixels within radius, and their
-      indices when there are at most {MAX_RETURNED}
+      indices when there are at most {MAX_RETURNED}; discs of more than {MAX_DISC_PIXELS:,} pixels are refused
     nside is a power of 2 up to {MAX_NSIDE}. HEALPix positions are in the map's own coordinate frame."""
 
     inputs = {

@@ -135,6 +135,18 @@ def test_north_pole_is_in_one_of_the_four_polar_base_pixels():
     assert run("healpix_pixels", nside=1, order="ring", lon=[0], lat=[90])["pixels"][0] in range(4)
 
 
+def test_a_disc_above_the_cap_is_refused_before_any_search(monkeypatch):
+    # the cone search time grows with the square of the pixel count, so the cap must apply before searching
+    from astropy_healpix import HEALPix
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("cone_search_lonlat ran for a disc above the cap")
+
+    monkeypatch.setattr(HEALPix, "cone_search_lonlat", must_not_run)
+    out = tool.forward("healpix_disc", {"nside": 2048, "order": "ring", "lon": 0, "lat": 0, "radius": 3.7})
+    assert out.startswith("Error") and "the limit is 50,000" in out
+
+
 def test_disc_size_matches_its_area_and_contains_its_centre():
     big = run("healpix_disc", nside=2048, order="ring", lon=10, lat=20, radius=1)
     expected = 12 * 2048**2 * (1 - math.cos(math.radians(1))) / 2
@@ -185,6 +197,7 @@ def test_disc_size_matches_its_area_and_contains_its_centre():
         ("healpix_disc", {"nside": 64, "order": "ring", "lon": 0, "lat": 0, "radius": 200}, "radius must lie"),
         ("healpix_disc", {"nside": 64, "order": "ring", "lon": 0, "lat": 91, "radius": 1}, "between -90 and 90"),
         ("healpix_disc", {"nside": 8192, "order": "ring", "lon": 0, "lat": 0, "radius": 60}, "the limit is"),
+        ("healpix_disc", {"nside": 2048, "order": "ring", "lon": 0, "lat": 0, "radius": 3.7}, "the limit is 50,000"),
         (
             "convert",
             {"from_frame": "icrs", "to_frame": "galactic", "lon": [0], "lat": [0], "x": 1},
