@@ -102,3 +102,8 @@ def test_registered_in_the_tool_registry():
 
     numerics = tool_registry.create("numerics", watcher=EventWatcher("t", sink=lambda e: None))
     assert numerics.name == "numerics"
+
+
+def test_description_says_how_to_read_the_output():
+    # descriptions are wrapped over several lines, so compare with the whitespace collapsed
+    assert "JSON string (parse it with json.loads)" in " ".join(NumericsTool.description.split())

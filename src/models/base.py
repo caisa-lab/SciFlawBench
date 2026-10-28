@@ -7,7 +7,7 @@ from smolagents import (
     Tool,
 )
 
-from core.config import ModelConfig
+from core.config import MAX_TOKENS_PARAMS, ModelConfig
 from core.events import EventWatcher
 from models.context import (
     CONTEXT_TRIM_RESERVE,
@@ -66,11 +66,14 @@ class WrappedModel(Model):
 
         note that this will try to save only message deltas on each run
         """
+        received = len(messages)
         messages, trimmed = self._apply_context_budget(messages)
 
-        start = min(self._last_logged_len, len(messages))
-        new_messages = messages[start:]
-        self._last_logged_len = len(messages)
+        # Log only the messages added since the last call, counted before trimming: trimming can drop older
+        # messages, so a slice from the previous length would miss the newest ones. The trimmer keeps the tail.
+        added = max(0, received - self._last_logged_len)
+        new_messages = messages[len(messages) - min(added, len(messages)) :]
+        self._last_logged_len = received
         kwargs["start_payload"] = {
             "new_messages": new_messages,
             "message_count": len(messages),
@@ -126,10 +129,14 @@ def build_model(conf: ModelConfig, watcher: EventWatcher, offloader: MemoryOfflo
     Returns (WrappedModel): wrapped model object to be used by the smolagent
     """
 
-    # `max_new_tokens` caps every generation step (it is also reserved out of the input budget below)
+    # `max_new_tokens` caps every generation step (it is also reserved out of the input budget below). It is
+    # sent under `max_tokens_param` only; a cap left in extra_kwargs was already adopted into max_new_tokens
     extra_kwargs = dict(conf.extra_kwargs)
-    if conf.max_new_tokens and conf.provider.lower() != "fake_model":
-        extra_kwargs["max_tokens"] = conf.max_new_tokens
+    if conf.provider.lower() != "fake_model":
+        for key in MAX_TOKENS_PARAMS:
+            extra_kwargs.pop(key, None)
+        if conf.max_new_tokens:
+            extra_kwargs[conf.max_tokens_param] = conf.max_new_tokens
 
     match conf.provider.lower():
         case "litellm":

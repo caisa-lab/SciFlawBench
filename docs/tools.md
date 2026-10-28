@@ -54,7 +54,7 @@ Rules to remember:
 
 ### "Must use tool X"
 
-A submission can require a particular tool call, but the harness has no deterministic tool-call verifier yet: the check is a `judge:rubric` validator whose rubric names the required call and its parameters, applied to the run's trace (which contains every tool name, input and output). If your item needs a hard, mechanical assertion on the invocation log, say so in the issue tracker.
+A submission can require a particular tool call, but the harness has no deterministic tool-call verifier yet: the check is a `judge:rubric` validator whose rubric names the required call and its parameters, applied to the run's trace (which contains every tool name, input and output; very long outputs are shortened to fit the judge's `max_trace_tokens`). If your item needs a hard, mechanical assertion on the invocation log, say so in the issue tracker.
 
 ## 3. Tool versioning rules
 
@@ -66,7 +66,7 @@ A submission can require a particular tool call, but the harness has no determin
 
 `code_agent` runs the Python it writes inside smolagents' local executor. That executor is a *containment* for the tool surface, not a security sandbox, and it is deliberately narrow:
 
-* **Imports are restricted** to a small allowlist of standard-library modules: `collections`, `datetime`, `itertools`, `math`, `queue`, `random`, `re`, `stat`, `statistics`, `time`, `unicodedata`.
+* **Imports are restricted** to a small allowlist of standard-library modules: `collections`, `datetime`, `itertools`, `json`, `math`, `queue`, `random`, `re`, `stat`, `statistics`, `time`, `unicodedata`. `json` is there so the agent can read the JSON that tools such as `numerics` return; it cannot reach files, because `open()` is blocked.
 * `open()`, `eval`-style builtins and shell access are **not** available.
 * Consequently `numpy`, `pandas`, `matplotlib`, `astropy`, `rdkit`, `Bio`/`BioPython` and friends **cannot be imported today**.
 

@@ -10,7 +10,7 @@ It is research software, not a hardened multi-tenant service. The agent **writes
 
 ## Execution of model-generated code
 
-The core of the benchmark is smolagents' `CodeAgent`, which writes Python and executes it locally through smolagents' `LocalPythonExecutor`. That executor is **not a security boundary**: smolagents documents it as a way to restrict the surface of tools available to the model, not as a way to isolate malicious code. `CodeAgent` is built in `src/agents/base.py` without `additional_authorized_imports`, so model code may import only smolagents' base allowlist of standard-library modules (see `BASE_BUILTIN_MODULES` in `smolagents/utils.py`). That is a convenience restriction, **not** a containment guarantee.
+The core of the benchmark is smolagents' `CodeAgent`, which writes Python and executes it locally through smolagents' `LocalPythonExecutor`. That executor is **not a security boundary**: smolagents documents it as a way to restrict the surface of tools available to the model, not as a way to isolate malicious code. `CodeAgent` is built in `src/agents/base.py` with `additional_authorized_imports=CODE_AGENT_EXTRA_IMPORTS`, so model code may import only smolagents' base allowlist of standard-library modules (see `BASE_BUILTIN_MODULES` in `smolagents/utils.py`) plus `json`, which lets it parse the JSON that tools return. That is a convenience restriction, **not** a containment guarantee.
 
 Consequences and mitigations:
 
@@ -45,7 +45,7 @@ On shared clusters, remember that the **agent**, not you, chooses which URLs are
 Every model request carries the task prompt plus the accumulated agent history, which includes tool results: the contents of files read with `read_file`, fetched web pages, search results and calculator output. Third-party search and API endpoints additionally receive the queries themselves. If your task set or assets are confidential, either run against a provider you are
 permitted to send them to, or run closed-book with no local-file and no web tools.
 
-Tasks graded by an LLM judge (`judge:rubric` validators) send an extra copy of the whole run trace — including any local file contents and fetched web pages it contains — to the model configured in the run's `judge` section, which is usually a different (third-party) provider from the one being benchmarked. The harness does not truncate that trace. Only enable judging on data you are willing to hand to that provider.
+Tasks graded by an LLM judge (`judge:rubric` validators) send an extra copy of the run trace, once per check — the model's thoughts and code, every tool output and the code agent's execution logs, including any local file contents and fetched web pages — to the model configured in the run's `judge` section, which is usually a different (third-party) provider from the one being benchmarked. The trace is sent in full while it fits the judge's `max_trace_tokens` budget (default 500,000 tokens, estimated at 4 characters per token); only above that are the largest outputs shortened. Only enable judging on data you are willing to hand to that provider. The same untrusted text reaches the judge, so it is a prompt-injection surface there too: the judge prompt says that everything in the trace is evidence of what happened, never instructions to the judge, which reduces that risk but does not remove it.
 
 ## The calculator tool
 

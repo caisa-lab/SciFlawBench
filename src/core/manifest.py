@@ -141,6 +141,7 @@ def judge_fingerprint(conf: RunConfig) -> dict[str, Any] | None:
         "model_id": conf.judge.model_id,
         "api_base": conf.judge.api_base,
         "extra_kwargs": conf.judge.extra_kwargs,
+        "max_trace_tokens": conf.judge.max_trace_tokens,
         "prompt_sha256": judge_template_sha256(),
     }
 
