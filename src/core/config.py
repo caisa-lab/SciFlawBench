@@ -28,6 +28,10 @@ def read_env_api_key(api_key_env: str) -> str:
     return value
 
 
+# the request parameters a generation cap can be sent under (see ModelConfig.max_tokens_param)
+MAX_TOKENS_PARAMS = ("max_tokens", "max_completion_tokens")
+
+
 class ModelConfig(BaseModel):
     """
     class which stores all the information needed to provision a model (gets read from the config)
@@ -51,9 +55,14 @@ class ModelConfig(BaseModel):
     model_max_context: int | None = None
 
     # Cap on the tokens generated per model call (one agent step); also reserved out of the input
-    # budget. None leaves the provider default and reserves nothing. A `max_tokens` given in
-    # `extra_kwargs` is adopted here for backwards compatibility.
+    # budget. None leaves the provider default and reserves nothing. A `max_tokens` or
+    # `max_completion_tokens` given in `extra_kwargs` is adopted here for backwards compatibility.
     max_new_tokens: int | None = 16_384
+
+    # the request parameter that carries `max_new_tokens`; set "max_completion_tokens" for models that reject
+    # `max_tokens` (e.g. newer OpenAI models behind an `openai_server` proxy). The default suits vLLM, most
+    # OpenAI-compatible servers and hf_api
+    max_tokens_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
 
     # set to False for models that reject the `stop` parameter but are missing from smolagents' hard-coded list
     # (o3, o4, gpt-5*, grok-*); None leaves the decision to smolagents
@@ -71,14 +80,26 @@ class ModelConfig(BaseModel):
 
     @model_validator(mode="after")
     def reconcile_max_tokens(self) -> "ModelConfig":
-        """Keep `max_new_tokens` and a legacy `extra_kwargs['max_tokens']` from disagreeing."""
-        legacy = self.extra_kwargs.get("max_tokens")
-        if legacy is None:
+        """
+        Keep `max_new_tokens` and a cap given in `extra_kwargs` from disagreeing.
+
+        A legacy `extra_kwargs['max_tokens']` or `extra_kwargs['max_completion_tokens']` is adopted into
+        `max_new_tokens`, and its key into `max_tokens_param`, unless either was set to something else.
+        """
+        given = {key: self.extra_kwargs[key] for key in MAX_TOKENS_PARAMS if self.extra_kwargs.get(key) is not None}
+        if not given:
             return self
+        if len(given) > 1:
+            raise ValueError("set only one of extra_kwargs.max_tokens and extra_kwargs.max_completion_tokens")
+        ((key, legacy),) = given.items()
         if "max_new_tokens" not in self.model_fields_set:
             self.max_new_tokens = int(legacy)
         elif self.max_new_tokens != legacy:
-            raise ValueError("set either max_new_tokens or extra_kwargs.max_tokens, not both with different values")
+            raise ValueError(f"set either max_new_tokens or extra_kwargs.{key}, not both with different values")
+        if "max_tokens_param" not in self.model_fields_set:
+            self.max_tokens_param = key
+        elif self.max_tokens_param != key:
+            raise ValueError(f"extra_kwargs.{key} conflicts with max_tokens_param={self.max_tokens_param!r}")
         return self
 
     @model_validator(mode="after")
@@ -99,6 +120,10 @@ class ModelConfig(BaseModel):
         return self._api_key
 
 
+# token budget for the rendered trace a judge reads, and for the trace reports (see JudgeConfig.max_trace_tokens)
+DEFAULT_MAX_TRACE_TOKENS = 500_000
+
+
 class JudgeConfig(BaseModel):
     """
     Configuration for the LLM-as-a-judge model used by the `judge:*` validators.
@@ -114,7 +139,20 @@ class JudgeConfig(BaseModel):
     api_base: str | None = None
     extra_kwargs: dict = Field(default_factory=dict)
 
+    # Token budget for the rendered trace the judge reads (estimated at ~4 characters per token). The default is half
+    # of a 1M-token window, leaving room for the rubric, the prompt and the reply; lower it for a smaller window.
+    # Above the budget the largest tool outputs and execution logs are shortened (see render_trace_markdown).
+    max_trace_tokens: int = DEFAULT_MAX_TRACE_TOKENS
+
     _api_key: str = PrivateAttr()
+
+    @field_validator("max_trace_tokens")
+    @classmethod
+    def trace_budget_is_positive(cls, v: int) -> int:
+        """Reject a non-positive budget: it would leave the judge no trace to read."""
+        if v <= 0:
+            raise ValueError("max_trace_tokens must be a positive number of tokens")
+        return v
 
     @model_validator(mode="after")
     def resolve_api_key(self) -> "JudgeConfig":

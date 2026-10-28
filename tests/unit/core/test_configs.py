@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from core.config import ModelConfig, RunConfig
+from core.config import DEFAULT_MAX_TRACE_TOKENS, JudgeConfig, ModelConfig, RunConfig
 from core.manifest import build_run_signature
 from core.tasks import TaskDef
 
@@ -66,6 +66,25 @@ def test_conflicting_max_tokens_is_rejected():
         _model(max_new_tokens=4096, extra_kwargs={"max_tokens": 2048})
 
 
+def test_max_tokens_param_defaults_to_max_tokens():
+    assert _model().max_tokens_param == "max_tokens"
+    with pytest.raises(ValidationError):
+        _model(max_tokens_param="max_output_tokens")
+
+
+def test_legacy_extra_kwargs_max_completion_tokens_is_adopted():
+    model = _model(extra_kwargs={"max_completion_tokens": 2048})
+
+    assert (model.max_new_tokens, model.max_tokens_param) == (2048, "max_completion_tokens")
+
+
+def test_conflicting_cap_names_are_rejected():
+    with pytest.raises(ValidationError):
+        _model(extra_kwargs={"max_tokens": 2048, "max_completion_tokens": 2048})
+    with pytest.raises(ValidationError):
+        _model(max_tokens_param="max_tokens", extra_kwargs={"max_completion_tokens": 2048})
+
+
 def test_memory_offload_defaults(tmp_path, monkeypatch):
     conf = _conf(tmp_path, monkeypatch)
     assert conf.memory_offload is True
@@ -127,3 +146,12 @@ def test_run_signature_tracks_generation_and_memory_settings(tmp_path, monkeypat
 
     model = _model(max_new_tokens=1024)
     assert build_run_signature(_conf(tmp_path, monkeypatch, model=model), _tasks()) != baseline
+
+
+def test_judge_trace_budget_has_a_default_and_must_be_positive(monkeypatch):
+    monkeypatch.setenv("JUDGE_KEY", "x")
+
+    assert JudgeConfig(model_id="m", api_key_env="JUDGE_KEY").max_trace_tokens == DEFAULT_MAX_TRACE_TOKENS == 500_000
+    assert JudgeConfig(model_id="m", api_key_env="JUDGE_KEY", max_trace_tokens=100_000).max_trace_tokens == 100_000
+    with pytest.raises(ValidationError):
+        JudgeConfig(model_id="m", api_key_env="JUDGE_KEY", max_trace_tokens=0)
