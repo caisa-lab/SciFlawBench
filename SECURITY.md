@@ -54,7 +54,7 @@ parser and is **not** a general-purpose sandbox, so treat the expression as untr
 
 ## Task files, assets and ids are *integrity* controls
 
-SciFlawBench uses `task_id = md5(task)` and verifies it when the task file is loaded (`src/core/tasks.py`); `python src/make_task_ids.py <task-file>` re-derives ids (and renames asset folders) after a prompt is edited. This detects **accidental** modification of a task set. It is not an authenticity or tamper-proofing mechanism: MD5 is collision-broken and the check is computed locally from the very file it validates, so anyone able to edit that file can recompute a matching id.
+SciFlawBench uses `task_id = md5(task)`, or for a task with a fixed id `prompt_md5 = md5(task)`, and verifies it when the task file is loaded (`src/core/tasks.py`); `python src/make_task_ids.py <task-file>` re-derives the hashes (and renames asset folders of md5 ids) after a prompt is edited. This detects **accidental** modification of a task set. It is not an authenticity or tamper-proofing mechanism: MD5 is collision-broken and the check is computed locally from the very file it validates, so anyone able to edit that file can recompute a matching id.
 
 Run manifests (`src/core/manifest.py`) are stronger. They are SHA-256 based, written once per run and never overwritten, and a resumed run is refused unless its whole run signature still matches the manifest. `NO_REPRODUCIBILITY_GUARANTEES=true` downgrades that refusal to a warning; it is an explicit escape hatch, and runs produced under it are no longer verifiable.
 

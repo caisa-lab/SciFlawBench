@@ -163,7 +163,26 @@ def task_score(check_results: Iterable[Any] | None) -> float | None:
     results = list(check_results or [])
     if not results:
         return None
+    return _fraction_passed(results)
+
+
+def _fraction_passed(results: list[Any]) -> float:
+    """The fraction of a non-empty list of checks that passed."""
     return sum(1.0 if _passed(check) else 0.0 for check in results) / len(results)
+
+
+def checks_by_failure_mode(check_results: Iterable[Any]) -> dict[str, list[Any]]:
+    """
+    The recorded checks grouped by the failure mode each one grades (its `failure_mode`).
+
+    Empty for runs recorded before checks named their failure mode; those are scored the old way.
+    """
+    grouped: dict[str, list[Any]] = {}
+    for check in check_results:
+        mode = check.get("failure_mode") if isinstance(check, Mapping) else getattr(check, "failure_mode", None)
+        if mode:
+            grouped.setdefault(mode, []).append(check)
+    return grouped
 
 
 def record_failure_modes(record: Mapping[str, Any]) -> set[str]:
@@ -192,6 +211,11 @@ def aggregate_scores(records: Iterable[Mapping[str, Any]]) -> ScoreBoard:
     from every score, since there is nothing to grade. Per-failure-mode buckets only include runs
     whose task declares that mode, so a mode is never diluted by tasks that do not probe it.
 
+    The overall score of a run is the fraction of all its checks that passed. When the checks name
+    the failure mode they grade (one check per mode), each mode is scored from its own check and each
+    family from the checks of its modes; runs recorded without these labels give every declared mode
+    and family the run's overall score, as before.
+
     Args:
         records (Iterable[Mapping]): the run records (as written to `aggregate_results.jsonl`)
 
@@ -205,13 +229,28 @@ def aggregate_scores(records: Iterable[Mapping[str, Any]]) -> ScoreBoard:
     unscored = 0
     for record in records:
         runs += 1
-        score = task_score(record_check_results(record))
+        checks = record_check_results(record)
+        score = task_score(checks)
         if score is None:
             unscored += 1
             continue
 
         passed = score >= 1.0
         overall.add(score, passed)
+
+        by_mode = checks_by_failure_mode(checks)
+        if by_mode:
+            for family, family_modes in FAILURE_MODES_BY_FAMILY.items():
+                family_checks = [check for mode in family_modes for check in by_mode.get(mode, [])]
+                if family_checks:
+                    family_score = _fraction_passed(family_checks)
+                    families[family].add(family_score, family_score >= 1.0)
+            for mode, mode_checks in by_mode.items():
+                # A mode from an unknown/legacy source is ignored rather than crashing the summary.
+                if mode in modes:
+                    mode_score = _fraction_passed(mode_checks)
+                    modes[mode].add(mode_score, mode_score >= 1.0)
+            continue
 
         declared = record_failure_modes(record)
         for family, family_modes in FAILURE_MODES_BY_FAMILY.items():

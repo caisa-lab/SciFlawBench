@@ -8,7 +8,8 @@ Each line of `tasks.jsonl` is a single JSON object describing one task. The four
 
 | Field           | Type                           | Description                                                                                                        |
 | --------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `task_id`       | `str`                          | 32-character MD5 hash of the `task` text.                                                                          |
+| `task_id`       | `str`                          | 32-character MD5 hash of the `task` text, or a fixed id that starts with a letter (see `prompt_md5`).              |
+| `prompt_md5`    | `str` (optional)               | MD5 hash of the `task` text, recorded only when `task_id` is a fixed id.                                           |
 | `task`          | `str`                          | The prompt handed to the agent.                                                                                    |
 | `agent_id`      | `"code_agent" \| "tool_agent"` | Which registered agent should attempt the task.                                                                    |
 | `failure_modes` | `object`                       | The failure modes the task is designed to probe, split into `quantitative` and `qualitative` lists. See [Failure modes](#failure-modes). |
@@ -34,18 +35,18 @@ Optional fields let a task do more than the minimum:
 - Every entry must be one of the canonical names for its family — the quantitative and qualitative modes listed in [`../../docs/failure-modes.md`](../../docs/failure-modes.md).
 - A task must declare **at least one** mode.
 
-The declared modes are copied into every result record. At the end of a run the harness averages its task scores (see [Validators](#validators)) into `scores.json` and appends a score block to
-`run_summary.log`: the overall score plus one score per failure mode, each measured only over the tasks that declare it.
+The declared modes are copied into every result record. At the end of a run the harness averages the scores (see [Validators](#validators)) into `scores.json` and appends a score block to
+`run_summary.log`: the overall score plus one score per failure mode, each measured only over the tasks that declare it and taken from that mode's own check.
 
 ### Validators
 
-Each entry of `validators` is a `{"name": ..., "kwargs": {...}}` object naming a registered verifier:
+Each entry of `validators` is a `{"name": ..., "kwargs": {...}, "failure_mode": ...}` object naming a registered verifier and the failure mode it grades. A task has **exactly one validator per declared failure mode**, listed in the order of the modes (quantitative first); the harness refuses a task whose labels do not match its modes one to one:
 
 ```json
-{"validators": [{"name": "content:numeric_match", "kwargs": {"expected": "18.4", "tol": 0.05}}]}
+{"validators": [{"name": "content:numeric_match", "kwargs": {"expected": "18.4", "tol": 0.05}, "failure_mode": "correctness"}]}
 ```
 
-Every verifier receives the agent's final answer as its first argument and returns a pass/fail plus a human-readable detail string; a verifier that raises counts as failed. The results are stored as `check_results` in the task's result record and summarised as `Checks: passed/total` in `run_summary.log`. A task's **score** is the fraction of its checks that pass (`1.0` when every check passes); those task scores are what the harness averages into the overall and per-failure-mode scores written to `scores.json` (see [Failure modes](#failure-modes)).
+Every verifier receives the agent's final answer as its first argument and returns a pass/fail plus a human-readable detail string; a verifier that raises counts as failed. The results are stored as `check_results` in the task's result record and summarised as `Checks: passed/total` in `run_summary.log`. A task's **score** is the fraction of its checks that pass (`1.0` when every check passes) and goes into the overall score; each failure mode is scored from its own check, and those per-mode scores are averaged into `scores.json` (see [Failure modes](#failure-modes)).
 
 | Verifier | `kwargs` | What it checks |
 | -------- | -------- | -------------- |
@@ -65,7 +66,7 @@ Every verifier receives the agent's final answer as its first argument and retur
 
 ## Task ids and local files
 
-`task_id` is the **32-character MD5 hash of the `task` text**. Prompts that need a local file reference it through a `{TASK_ID}` placeholder, which stays in the stored prompt; the harness substitutes the real id when the task runs. The file itself lives in `../tasks/assets/<task_id>/`. For example:
+`task_id` is the **32-character MD5 hash of the `task` text**. Prompts that need a local file reference it through a `{TASK_ID}` placeholder, which stays in the stored prompt; the harness substitutes the real id when the task runs. The file itself lives in `../tasks/assets/<task_id>/`. A task can instead keep a fixed `task_id` (one that starts with a letter, e.g. `SFB-0042`) and record the hash in `prompt_md5`; its id, and so its assets folder, then stay the same when the prompt is edited. For example:
 
 ```json
 {
@@ -78,7 +79,7 @@ Every verifier receives the agent's final answer as its first argument and retur
 
 > IMPORTANT: A task must declare any tool it needs that the agent does not already have. The default `code_agent` / `tool_agent` ship with `web_search`, `wikipedia_search`, `visit_webpage`, `calculator`, `current_time` and `arxiv_search`. On the other hand, `read_file`, `json_answer_tool`, `numerics`, `significance`, `cosmology` and `sky` are opt-in and have to be listed in `extra_tools`. Listing a tool the agent already has is an error: smolagents rejects duplicate tool names, so only genuinely missing tools belong in `extra_tools`. See the [tool list](../../examples/README.md#tool-overrides) for every registered tool.
 
-Prompts that use no local files simply hash their plain text. Because the stored prompt is what gets hashed, the harness verifies `md5(task) == task_id` at load time and refuses any sample whose id no longer matches its prompt. See [`../tasks/assets/README.md`](../tasks/assets/README.md) for the full convention.
+Prompts that use no local files simply hash their plain text. Because the stored prompt is what gets hashed, the harness verifies `md5(task) == task_id` (or `== prompt_md5` for a fixed id) at load time and refuses any sample whose hash no longer matches its prompt. See [`../tasks/assets/README.md`](../tasks/assets/README.md) for the full convention.
 
 ## Usage
 

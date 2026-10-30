@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from agents.base import build_agent
 from core.config import DEFAULT_MAX_TRACE_TOKENS, RunConfig
 from core.events import AgentEvent, EventWatcher
-from core.task_ids import TaskId, hash_prompt, render_task, task_id_slug
+from core.task_ids import FIXED_ID_PATTERN, TaskId, hash_prompt, render_task, task_id_slug
 from evaluation.base import VerificationResult, VerifierContext, VerifierDef, run_check, wants_context
 from evaluation.definitions import verifier_registry
 from evaluation.judge import LiteLLMJudge
@@ -44,6 +44,7 @@ class TaskDef(BaseModel):
 
     task_id: TaskId
     task: str
+    prompt_md5: str | None = None  # md5(task) when the task keeps a fixed id; None when the id is the md5
     agent_id: str
     extra_tools: list[ToolDef | str] = Field(default_factory=list)  # TODO: why allow strings?
     validators: list[VerifierDef] = Field(default_factory=list)
@@ -67,19 +68,51 @@ class TaskDef(BaseModel):
     @model_validator(mode="after")
     def verify_task_id_matches_prompt(self):
         """
-        Guard against modified samples: a hash-style id must equal `md5(task)`.
+        Guard against modified samples: a hash-style id, or `prompt_md5` when given, must equal `md5(task)`.
 
         The prompt is hashed *as stored* (i.e. with any `{TASK_ID}` placeholder
-        still in place), so editing a prompt without recomputing its id is
-        rejected at load time. Integer ids (legacy/ad-hoc tasks) are left alone.
+        still in place), so editing a prompt without recomputing its hash is
+        rejected at load time. A task with `prompt_md5` keeps a fixed id (see
+        `FIXED_ID_PATTERN`) that does not change when the prompt is edited.
+        Integer ids (legacy/ad-hoc tasks) without `prompt_md5` are left alone.
         """
-        if isinstance(self.task_id, str):
-            expected = hash_prompt(self.task)
-            if self.task_id != expected:
+        expected = hash_prompt(self.task)
+        if self.prompt_md5 is not None:
+            if not isinstance(self.task_id, str) or not FIXED_ID_PATTERN.fullmatch(self.task_id):
                 raise ValueError(
-                    f"task_id {self.task_id!r} does not match md5(task) {expected!r}: "
-                    "the task text was modified without updating its id"
+                    f"task_id {self.task_id!r} is not a valid fixed id: with prompt_md5 the id must start with a "
+                    "letter and use only letters, digits, '.', '_' and '-' (e.g. 'SFB-0042')"
                 )
+            if self.prompt_md5 != expected:
+                raise ValueError(
+                    f"prompt_md5 {self.prompt_md5!r} does not match md5(task) {expected!r}: "
+                    "the task text was modified without updating prompt_md5"
+                )
+        elif isinstance(self.task_id, str) and self.task_id != expected:
+            raise ValueError(
+                f"task_id {self.task_id!r} does not match md5(task) {expected!r}: "
+                "the task text was modified without updating its id"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def verify_one_check_per_failure_mode(self):
+        """
+        Each declared failure mode is graded by exactly one check, which names it in `failure_mode`.
+
+        The checks follow the order in which the modes are declared (quantitative first), so the label and
+        the position must agree; per-mode scores are then built from each mode's own check. A task without
+        checks has nothing to score and is left alone.
+        """
+        if not self.validators:
+            return self
+        modes = self.failure_modes.all()
+        labels = [validator.failure_mode for validator in self.validators]
+        if labels != modes:
+            raise ValueError(
+                "each failure mode needs exactly one check, labelled with it in 'failure_mode' and listed in the "
+                f"order the modes are declared (quantitative first): modes {modes}, check labels {labels}"
+            )
         return self
 
 
@@ -93,6 +126,7 @@ class TaskResult(BaseModel):
 
     task_id: TaskId
     task: str
+    prompt_md5: str | None = None  # which version of the prompt ran, for a task with a fixed id
     repetition: int
     output: Any
     success: bool
@@ -247,7 +281,9 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
         error_str = ""
         verifier_context = build_verifier_context(task, prompt, out, run_config, events, success)
         verifier_results = [
-            run_check(verifier_registry.get(verifier.name), out, context=verifier_context, **verifier.kwargs)
+            run_check(
+                verifier_registry.get(verifier.name), out, context=verifier_context, **verifier.kwargs
+            ).model_copy(update={"failure_mode": verifier.failure_mode})
             for verifier in task.validators
         ]
     except Exception:
@@ -258,6 +294,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
 
     result = TaskResult(
         task_id=task.task_id,
+        prompt_md5=task.prompt_md5,
         repetition=task.repetition,
         task=prompt,
         output=out,
