@@ -1,4 +1,5 @@
 import dataclasses
+import fcntl
 import json
 import logging
 import multiprocessing as mp
@@ -275,9 +276,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
 
     result = result.model_dump()
 
-    with open(out_file, "a") as f:
-        json.dump(result, f)
-        f.write("\n")
+    append_result_line(out_file, result)
 
     # the JSONL above is what resuming reads; this indented copy is only for humans
     trace_dir = output_dir / f"{task_id_slug(task.task_id)}_traces"
@@ -307,6 +306,20 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
 
         report_file = report_dir / f"{task_id_slug(task.task_id)}.{task.repetition}_report.md"
         save_markdown_report(result, report_file, max_tokens=trace_token_budget(run_config))
+
+
+def append_result_line(result_file: Path, record: dict) -> None:
+    """
+    Append one record as a JSON line to a per-task result file.
+
+    Repetitions of a task run in parallel and can finish at the same moment. A record holds the full trace and is
+    often 50-120 KB, so a buffered write reaches the file in several pieces that can interleave with another
+    process's; the exclusive lock keeps every line whole.
+    """
+    line = json.dumps(record) + "\n"
+    with open(result_file, "a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)  # released when the file is closed, after its buffer is flushed
+        fh.write(line)
 
 
 def completed_repetitions(result_file: Path) -> set[int]:
