@@ -95,6 +95,26 @@ class TaskDef(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def verify_one_check_per_failure_mode(self):
+        """
+        Each declared failure mode is graded by exactly one check, which names it in `failure_mode`.
+
+        The checks follow the order in which the modes are declared (quantitative first), so the label and
+        the position must agree; per-mode scores are then built from each mode's own check. A task without
+        checks has nothing to score and is left alone.
+        """
+        if not self.validators:
+            return self
+        modes = self.failure_modes.all()
+        labels = [validator.failure_mode for validator in self.validators]
+        if labels != modes:
+            raise ValueError(
+                "each failure mode needs exactly one check, labelled with it in 'failure_mode' and listed in the "
+                f"order the modes are declared (quantitative first): modes {modes}, check labels {labels}"
+            )
+        return self
+
 
 class TaskResult(BaseModel):
     """
@@ -261,7 +281,9 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
         error_str = ""
         verifier_context = build_verifier_context(task, prompt, out, run_config, events, success)
         verifier_results = [
-            run_check(verifier_registry.get(verifier.name), out, context=verifier_context, **verifier.kwargs)
+            run_check(
+                verifier_registry.get(verifier.name), out, context=verifier_context, **verifier.kwargs
+            ).model_copy(update={"failure_mode": verifier.failure_mode})
             for verifier in task.validators
         ]
     except Exception:

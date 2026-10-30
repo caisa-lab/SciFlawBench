@@ -349,7 +349,7 @@ def test_the_judge_is_given_the_trace_rendered_within_its_budget(monkeypatch):
         task="p",
         agent_id="code_agent",
         failure_modes={"qualitative": ["reasoning"]},
-        validators=[{"name": "judge:rubric", "kwargs": {"rubric": "r"}}],
+        validators=[{"name": "judge:rubric", "kwargs": {"rubric": "r"}, "failure_mode": "reasoning"}],
     )
     run_config = SimpleNamespace(judge=SimpleNamespace(max_trace_tokens=4321, model_id="j"))
     events = [AgentEvent(event_type=EventType.AgentStart, task_id="demo", payload={}, timestamp=0.0)]

@@ -168,8 +168,8 @@ Run `python src/main.py --help` for the complete list.
 Each task is scored by the fraction of its validators that pass: `1.0` when every check passes, `0.0` when none do, and a task with no checks at all has no score. At the end of a run the harness aggregates those task scores into `scores.json` and appends a matching block to `run_summary.log`:
 
 - an **overall** score — the mean task score across every recorded run;
-- a **per failure mode** score for every mode the tasks declare in their `failure_modes` field, measured only over the tasks that declare that mode; and
-- a score for each **family** (`quantitative`, `qualitative`).
+- a **per failure mode** score for every mode the tasks declare in their `failure_modes` field, measured only over the tasks that declare that mode. Each task grades every declared mode with exactly one check, which names the mode in its `failure_mode`, so a mode's score comes from its own check (e.g. a run that gets the number right but agrees with a false premise scores 1 for `correctness` and 0 for `sycophancy`); and
+- a score for each **family** (`quantitative`, `qualitative`), from the checks of that family's modes.
 
 Runs killed or crashed before verification (no checks) are counted but excluded from the scores. The failure-mode taxonomy itself is documented in [`docs/failure-modes.md`](docs/failure-modes.md).
 
