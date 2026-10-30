@@ -10,6 +10,7 @@ from agents.base import build_agent
 from core.config import JudgeConfig, ModelConfig, RunConfig
 from core.events import EventWatcher
 from core.manager import RuntimeManager
+from core.task_ids import hash_prompt
 from core.tasks import TaskDef, run_task
 
 FAKE_MODEL_KWARGS = {"responses": ["final_answer('done')"]}
@@ -55,6 +56,43 @@ def test_run_fake_task(tmp_path, monkeypatch):
 
     print(data["error"])
     assert data["success"] is True
+
+
+def test_run_fake_task_with_a_fixed_id_records_prompt_md5(tmp_path, monkeypatch):
+    setup_basics(tmp_path, monkeypatch)
+    task_file = tmp_path / "tasks.jsonl"
+    task_file.write_text(
+        json.dumps(
+            {
+                "task_id": "SFB-0001",
+                "task": "say hi",
+                "prompt_md5": hash_prompt("say hi"),
+                "agent_id": "fake_agent",
+                "failure_modes": {"quantitative": ["correctness"]},
+            }
+        )
+        + "\n"
+    )
+    conf = RunConfig(
+        model=ModelConfig(
+            provider="fake_model", model_id="fake", api_key_env="FAKE_KEY", extra_kwargs=FAKE_MODEL_KWARGS
+        ),
+        task_file=task_file,
+        log_path=tmp_path / "logs",
+        repetitions_per_task=1,
+    )
+
+    import tests.fakes.presets
+    import tests.fakes.tools
+
+    taskdef = TaskDef(**json.loads(task_file.read_text()))
+    log_path = tmp_path / "logs"
+
+    run_task(taskdef, conf, log_path, mp.Queue())
+
+    data = json.loads((log_path / "SFB-0001.jsonl").read_text())
+    assert data["success"] is True
+    assert data["prompt_md5"] == hash_prompt("say hi")
 
 
 def test_single_task_pipeline(tmp_path, monkeypatch):

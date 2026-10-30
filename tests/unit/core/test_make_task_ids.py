@@ -56,6 +56,25 @@ def test_placeholder_free_task_just_hashes_its_text(tmp_path):
     assert json.loads(task_file.read_text().strip())["task_id"] == hash_prompt("say hi")
 
 
+def test_fixed_id_keeps_its_id_and_folder_and_gets_a_new_prompt_md5(tmp_path):
+    template = f"read `data/tasks/assets/{TASK_ID_PLACEHOLDER}/x.csv` again"
+    assets_dir = tmp_path / "assets"
+    (assets_dir / "SFB-0042").mkdir(parents=True)
+    (assets_dir / "SFB-0042" / "x.csv").write_text("a,b\n")
+    task_file = tmp_path / "tasks.jsonl"
+    task_file.write_text(_line("SFB-0042", template, prompt_md5=STALE) + "\n")
+
+    report = recompute_task_ids(task_file, assets_dir)
+
+    assert [(c.field, c.old_id, c.new_id, c.renamed) for c in report.changes] == [
+        ("prompt_md5", STALE, hash_prompt(template), None)
+    ]
+    obj = json.loads(task_file.read_text().strip())
+    assert obj["task_id"] == "SFB-0042"
+    assert obj["prompt_md5"] == hash_prompt(template)
+    assert (assets_dir / "SFB-0042" / "x.csv").is_file()
+
+
 def test_check_mode_reports_without_writing(tmp_path):
     task_file = tmp_path / "tasks.jsonl"
     original = _line(STALE, "say hi") + "\n"
