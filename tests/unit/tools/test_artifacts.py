@@ -60,6 +60,16 @@ def test_search_literal_with_context(store):
     assert match["after"] == ["delta"]
 
 
+def test_relative_root_can_read_and_search(tmp_path, monkeypatch):
+    # The default log_path ("logs/") is relative, so the store's root usually is too.
+    monkeypatch.chdir(tmp_path)
+    store = artifacts.ArtifactStore("logs/run/results/T_artifacts")
+    store.set_scope("rep1")
+    ref = store.save("line 1\nline 2\nline 3\n", tool_name="read_file")
+    assert store.read(ref.rel_path, start_line=2, end_line=2)["text"] == "line 2"
+    assert store.search("line 3", path=ref.rel_path)["total"] == 1
+
+
 def test_search_ignore_case_and_regex(store):
     store.save("Porto Alegre\nporto seguro\n", tool_name="web_search")
     assert store.search("porto")["total"] == 2
