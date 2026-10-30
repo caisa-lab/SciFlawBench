@@ -1,5 +1,8 @@
 import json
 import multiprocessing as mp
+import os
+import signal
+import time
 
 import pytest
 
@@ -291,7 +294,7 @@ def test_timedout_tasks(tmp_path, monkeypatch):
 
     RuntimeManager(conf).run()
 
-    assert (tmp_path / "logs" / "results" / "001.partial.json").exists()
+    assert (tmp_path / "logs" / "results" / "001.1.partial.json").exists()
 
     summary_lines = (tmp_path / "logs" / "aggregate_results.jsonl").read_text().strip().splitlines()
     assert len(summary_lines) == 1
@@ -300,6 +303,82 @@ def test_timedout_tasks(tmp_path, monkeypatch):
     assert entry["status"] == "terminated"
     assert entry["time_elapsed"]
     assert entry["last_event"]
+
+
+def test_timedout_repetitions_keep_their_own_partial_trace(tmp_path, monkeypatch):
+    setup_basics(tmp_path, monkeypatch)
+    monkeypatch.setenv("ENABLE_TEST_FAKES", "1")
+
+    task_file = tmp_path / "tasks.jsonl"
+    task_file.write_text(
+        '{"task_id": 1, "task": "hang too long", "agent_id": "fake_agent",'
+        ' "failure_modes": {"quantitative": ["correctness"]} }\n'
+    )
+
+    conf = RunConfig(
+        model=ModelConfig(
+            provider="fake_model",
+            model_id="fake",
+            api_key_env="FAKE_KEY",
+            extra_kwargs={"responses": ["thanks for bearing with the wait"], "timeout": 99.0},
+        ),
+        task_file=task_file,
+        log_path=tmp_path / "logs",
+        restarting=True,
+        max_concurrent=4,
+        task_timeout_s=3,
+        repetitions_per_task=3,
+    )
+
+    RuntimeManager(conf).run()
+
+    results = tmp_path / "logs" / "results"
+    assert sorted(path.name for path in results.glob("*.partial.json")) == [
+        "001.1.partial.json",
+        "001.2.partial.json",
+        "001.3.partial.json",
+    ]
+
+    # Events carry no repetition number, but the run summary prints the last event of each killed
+    # repetition: every file must end with the event reported for its own repetition.
+    summary = (tmp_path / "logs" / "run_summary.log").read_text().splitlines()
+    for repetition in (1, 2, 3):
+        events = json.loads((results / f"001.{repetition}.partial.json").read_text())
+        assert events and all(event["task_id"] == 1 for event in events)
+        reported = [line for line in summary if f"task    1.{repetition} " in line]
+        assert len(reported) == 1
+        assert f"'timestamp': {events[-1]['timestamp']!r}" in reported[0]
+
+
+def test_task_killed_before_its_first_event_is_still_reported(tmp_path, monkeypatch):
+    setup_basics(tmp_path, monkeypatch)
+    task_file = tmp_path / "tasks.jsonl"
+    task_file.write_text(
+        '{"task_id": 1, "task": "say hi", "agent_id": "fake_agent",'
+        ' "failure_modes": {"quantitative": ["correctness"]} }\n'
+    )
+    taskdef = TaskDef(**json.loads(task_file.read_text()))
+    conf = _resume_conf(tmp_path, task_file)
+
+    def killed_while_building(*args, **kwargs):
+        # the manager's SIGTERM arrives while the agent is still being built, before any event exists
+        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(10)
+        raise AssertionError("the SIGTERM handler did not end the task")
+
+    monkeypatch.setattr("core.tasks.build_agent", killed_while_building)
+    queue = mp.Queue()
+    previous_handler = signal.getsignal(signal.SIGTERM)
+    try:
+        with pytest.raises(SystemExit):
+            run_task(taskdef, conf, tmp_path, queue)
+    finally:
+        signal.signal(signal.SIGTERM, previous_handler)
+
+    message = queue.get(timeout=5)
+    assert message["kind"] == "killed"
+    assert message["to_log"]["last_event"] is None
+    assert json.loads((tmp_path / "001.1.partial.json").read_text()) == []
 
 
 def _resume_conf(tmp_path, task_file, **overrides):

@@ -188,6 +188,7 @@ logs/<timestamp>/            # the `log_path` itself when `restarting` is set
 ├── scores.json              # overall, per-family and per-failure-mode scores
 └── results/                 # per-task results (one file per task id, one line per repetition)
     ├── <task_id>.jsonl      # one line per repetition
+    ├── <task_id>.<rep>.partial.json  # events recorded before a repetition was killed
     ├── <task_id>_traces/    # indented per-repetition trace files (for reading)
     ├── <task_id>_reports/   # markdown trace reports (with generate_trace_reports)
     └── <task_id>_artifacts/ # spilled tool outputs, one sub-directory per repetition
