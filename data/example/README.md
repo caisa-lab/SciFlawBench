@@ -35,18 +35,18 @@ Optional fields let a task do more than the minimum:
 - Every entry must be one of the canonical names for its family — the quantitative and qualitative modes listed in [`../../docs/failure-modes.md`](../../docs/failure-modes.md).
 - A task must declare **at least one** mode.
 
-The declared modes are copied into every result record. At the end of a run the harness averages its task scores (see [Validators](#validators)) into `scores.json` and appends a score block to
-`run_summary.log`: the overall score plus one score per failure mode, each measured only over the tasks that declare it.
+The declared modes are copied into every result record. At the end of a run the harness averages the scores (see [Validators](#validators)) into `scores.json` and appends a score block to
+`run_summary.log`: the overall score plus one score per failure mode, each measured only over the tasks that declare it and taken from that mode's own check.
 
 ### Validators
 
-Each entry of `validators` is a `{"name": ..., "kwargs": {...}}` object naming a registered verifier:
+Each entry of `validators` is a `{"name": ..., "kwargs": {...}, "failure_mode": ...}` object naming a registered verifier and the failure mode it grades. A task has **exactly one validator per declared failure mode**, listed in the order of the modes (quantitative first); the harness refuses a task whose labels do not match its modes one to one:
 
 ```json
-{"validators": [{"name": "content:numeric_match", "kwargs": {"expected": "18.4", "tol": 0.05}}]}
+{"validators": [{"name": "content:numeric_match", "kwargs": {"expected": "18.4", "tol": 0.05}, "failure_mode": "correctness"}]}
 ```
 
-Every verifier receives the agent's final answer as its first argument and returns a pass/fail plus a human-readable detail string; a verifier that raises counts as failed. The results are stored as `check_results` in the task's result record and summarised as `Checks: passed/total` in `run_summary.log`. A task's **score** is the fraction of its checks that pass (`1.0` when every check passes); those task scores are what the harness averages into the overall and per-failure-mode scores written to `scores.json` (see [Failure modes](#failure-modes)).
+Every verifier receives the agent's final answer as its first argument and returns a pass/fail plus a human-readable detail string; a verifier that raises counts as failed. The results are stored as `check_results` in the task's result record and summarised as `Checks: passed/total` in `run_summary.log`. A task's **score** is the fraction of its checks that pass (`1.0` when every check passes) and goes into the overall score; each failure mode is scored from its own check, and those per-mode scores are averaged into `scores.json` (see [Failure modes](#failure-modes)).
 
 | Verifier | `kwargs` | What it checks |
 | -------- | -------- | -------------- |

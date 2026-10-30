@@ -170,7 +170,9 @@ def test_run_task_records_the_judge_score_and_justification(tmp_path, monkeypatc
         task="say hi",
         agent_id="fake_agent",
         failure_modes={"quantitative": ["correctness"]},
-        validators=[{"name": "judge:rubric", "kwargs": {"rubric": "Does the trace say hi?"}}],
+        validators=[
+            {"name": "judge:rubric", "kwargs": {"rubric": "Does the trace say hi?"}, "failure_mode": "correctness"}
+        ],
     )
 
     output_dir = tmp_path / "logs" / "results"
@@ -595,7 +597,8 @@ def test_run_writes_overall_and_per_failure_mode_scores(tmp_path, monkeypatch):
     task_file.write_text(
         '{"task_id": 1, "task": "say hi", "agent_id": "fake_agent",'
         ' "failure_modes": {"quantitative": ["correctness"]},'
-        ' "validators": [{"name": "content:contains_str", "kwargs": {"expected": "done"}}]}\n'
+        ' "validators": [{"name": "content:contains_str", "kwargs": {"expected": "done"},'
+        ' "failure_mode": "correctness"}]}\n'
     )
 
     conf = RunConfig(
@@ -613,6 +616,9 @@ def test_run_writes_overall_and_per_failure_mode_scores(tmp_path, monkeypatch):
     scores = json.loads((tmp_path / "logs" / "scores.json").read_text())
     assert scores["overall"]["score"] == 1.0
     assert scores["failure_modes"]["correctness"] == {"score": 1.0, "pass_rate": 1.0, "passed": 1, "total": 1}
+    # each check carries the failure mode it grades into the run records
+    record = json.loads((tmp_path / "logs" / "aggregate_results.jsonl").read_text().splitlines()[0])
+    assert [check["failure_mode"] for check in record["checks"]] == ["correctness"]
     # A mode no task declares is still reported, with no runs behind it.
     assert scores["failure_modes"]["sycophancy"] == {"score": None, "pass_rate": None, "passed": 0, "total": 0}
 

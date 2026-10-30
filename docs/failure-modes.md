@@ -16,10 +16,10 @@ In a harness task file the flags live in the task's **`failure_modes`** field, w
 { "failure_modes": { "quantitative": ["correctness"], "qualitative": [] } }
 ```
 
-Both keys are always present (an empty list means "no mode of that family"); a task must declare at least one mode. This field is what lets the harness report a **score per failure mode**: at the end of a run the task scores are averaged into `scores.json` and the summary log, once overall and once
-per mode, each measured only over the tasks that declare it. See [Scoring](../README.md#scoring).
+Both keys are always present (an empty list means "no mode of that family"); a task must declare at least one mode. This field is what lets the harness report a **score per failure mode**: at the end of a run the scores are averaged into `scores.json` and the summary log, once overall and once
+per mode, each measured only over the tasks that declare it and taken from that mode's own check. See [Scoring](../README.md#scoring).
 
-The checks a task is graded by are its **validators**, one per check:
+The checks a task is graded by are its **validators**: **exactly one per declared mode**, naming the mode it grades in `failure_mode`, and listed in the order of the modes (quantitative first). The harness refuses a task whose checks and modes do not match one to one.
 
 * **Quantitative flags:** deterministic validators (`content:*`, `format:*`) that assert the expected value, or a `judge:rubric` validator when the property is only visible in the trace;
 * **Qualitative flags:** a `judge:rubric` validator whose rubric is the checklist for that flag.
