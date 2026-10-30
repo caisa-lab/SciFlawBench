@@ -194,13 +194,13 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
     def handle_sigterm(
         *args,
     ):  # this function runs if this task ever gets terminated by the manager  # TODO: unused args?
-        to_log["last_event"] = dataclasses.asdict(events[-1])  # type: ignore
+        to_log["last_event"] = dataclasses.asdict(events[-1]) if events else None  # type: ignore
         to_log["status"] = "terminated"
         to_log["time_elapsed"] = time.time() - start_time  # type: ignore
 
         res_queue.put({"task_id": task.task_id, "repetition": task.repetition, "kind": "killed", "to_log": to_log})
         try:
-            partial_path = output_dir / f"{task_id_slug(task.task_id)}.partial.json"
+            partial_path = output_dir / f"{task_id_slug(task.task_id)}.{task.repetition}.partial.json"
             partial_path.write_text(json.dumps([dataclasses.asdict(e) for e in events]))
         except Exception:
             pass
