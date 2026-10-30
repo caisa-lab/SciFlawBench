@@ -86,7 +86,7 @@ These names appear in contributor material and in annotations, but are **not** r
 | Requested name | Status | Workaround today |
 | -------------- | ------ | ---------------- |
 | `python_execution` | Not a tool: it is the agent's built-in capability | Nothing to declare — code execution is always available to `code_agent` |
-| `astropy`, `matplotlib`, `numpy`, `pandas`, `scipy` | Not importable (executor allowlist) | Re-express the computation with standard-library modules, use the `numerics` tool for its numpy operations, the `significance` tool for scipy's statistical functions the `cosmology` tool for astropy's cosmological distances and times, or the `sky` tool for coordinate conversions and HEALPix geometry, or request a dedicated tool |
+| `astropy`, `matplotlib`, `numpy`, `pandas`, `scipy` | Not importable (executor allowlist) | Re-express the computation with standard-library modules, use the `numerics` tool for its numpy operations, the `significance` tool for scipy's statistical functions or the `cosmology` tool for astropy's cosmological distances and times, or the `sky` tool for coordinate conversions and HEALPix geometry, or request a dedicated tool |
 | `astroquery_simbad` | Not implemented | `visit_webpage` against the SIMBAD web form / `web_search` |
 | `blast`, `primer3`, `rdkit`, `BLAST+`, `ASE`, `PyMOL`, `scikit-bio`, `LAMMPS` | Not implemented | None — request them |
 | `wget`, `curl` | Not implemented | `visit_webpage` for pages; ask for a fetch-to-disk tool if an item needs files on disk |
