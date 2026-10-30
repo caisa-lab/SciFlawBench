@@ -113,6 +113,22 @@ def test_a_calculation_that_does_not_converge_is_an_error_and_prints_no_warning(
     assert caught == []  # captured inside the tool, so nothing reaches the logs
 
 
+def test_parallel_calls_each_see_only_their_own_warnings():
+    # ToolCallingAgent can run tool calls in parallel threads; catch_warnings is process-wide, hence the lock
+    from concurrent.futures import ThreadPoolExecutor
+
+    good = {"cosmology": {"H0": 70, "Om0": 0.3}, "redshifts": [1]}
+    bad = {"cosmology": {"H0": 0.01, "Om0": 0, "w0": -3, "wa": -5}, "redshifts": [1, 1500]}
+    jobs = [("hubble", good), ("times", bad)] * 8
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            outs = list(pool.map(lambda job: tool.forward(*job), jobs))
+    for (_, arguments), out in zip(jobs, outs, strict=True):
+        assert out.startswith("Error") == (arguments is bad), out
+    assert caught == []
+
+
 def test_realistic_parameters_raise_no_warning():
     cosmology = {"H0": 67.4, "Om0": 0.315, "w0": -0.7, "wa": -0.8, "Tcmb0": 2.7255}
     with warnings.catch_warnings(record=True) as caught:

@@ -15,6 +15,10 @@ TOOL_ICONS = {
     "read_file": "📂",
     "current_time": "🕒",
     "json_answer_tool": "📦",
+    "numerics": "🔢",
+    "significance": "📊",
+    "cosmology": "🌌",
+    "sky": "🔭",
 }
 
 #: A shortened tool output or execution log keeps at least this many characters.
