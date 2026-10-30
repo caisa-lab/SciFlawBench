@@ -106,11 +106,13 @@ Each entry **replaces** the keyword arguments of that tool for the whole run (ra
 | ---- | ------------------ | ----- |
 | `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests per second), `engine` (`"duckduckgo"`) | SerpAPI is used instead of DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is not `"duckduckgo"` |
 | `wikipedia_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | The operator email is placed in the request `User-Agent`, as the Wikimedia API policy asks |
-| `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | Same as above, for the arXiv API |
+| `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | Searches arXiv papers through [ArcXiv](https://arcxiv.org), an independent service (not the official arXiv API), with a 10 s timeout; the operator email is placed in the request `User-Agent` |
 | `visit_webpage` | – | Fetches a URL and returns the page as Markdown |
 | `read_file` | `max_rows` (`50`), `max_chars` (`20000`) | **Not enabled by default**; add it to a task through `extra_tools` |
 | `calculator` | – | Evaluates a `sympy` expression in a resource-limited subprocess |
 | `json_answer_tool` | `required_fields` (`[]`) | **Not enabled by default**; validates a JSON answer against required keys. Usually added per task |
+| `numerics` | – | **Not enabled by default**; runs fixed numpy operations (linear algebra, least-squares fits, seeded sampling) on numbers the agent passes in. See [`docs/tools.md`](../docs/tools.md) |
+| `significance` | – | **Not enabled by default**; p-value ↔ σ conversions, χ² probabilities and quantiles, and exact CDFs and quantiles of common distributions, computed with scipy. See [`docs/tools.md`](../docs/tools.md) |
 | `current_time` | – | Returns the current local time |
 
 The default agents (`code_agent`, `tool_agent`) start with `web_search`, `wikipedia_search`, `visit_webpage`, `calculator`, `current_time` and `arxiv_search`. Tools listed in a task's `extra_tools` are appended on top of that list.
