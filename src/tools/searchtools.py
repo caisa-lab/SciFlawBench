@@ -216,8 +216,12 @@ class ArxivSearchTool(Tool):
     }
     output_type = "string"
 
+    # ArcXiv (https://arcxiv.org) is an independent search service over arXiv metadata, run by coder.company; it is
+    # not arXiv's own API (which returns Atom XML and has no endpoint like this one), so the domain is not a typo.
     BASE_URL = "https://arcxiv.org/api/agent/search"
     USER_AGENT_BASE = "AgenticArXivSearch/0.1 (https://github.com/ivzx04/SciFlawBench; "
+    # Seconds to wait for a response, so a slow or unreachable server cannot stall a run.
+    TIMEOUT_S = 10
 
     def __init__(self, operator: str):
         super().__init__()
@@ -237,7 +241,9 @@ class ArxivSearchTool(Tool):
         }
 
         try:
-            resp = requests.get(self.BASE_URL, params=params, headers={"User-Agent": self.user_agent})
+            resp = requests.get(
+                self.BASE_URL, params=params, headers={"User-Agent": self.user_agent}, timeout=self.TIMEOUT_S
+            )
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:

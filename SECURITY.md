@@ -33,7 +33,7 @@ The optional `read_file` tool (`src/tools/filetools.py`) resolves whatever path 
 Several tools reach out to third parties:
 
 - `web_search` uses DuckDuckGo by default, and SerpAPI when `SERPAPI_KEY` is set (`src/tools/definitions.py`).
-- `wikipedia_search` and `arxiv_search` query the Wikipedia and arXiv APIs (`src/tools/searchtools.py`).
+- `wikipedia_search` queries the Wikipedia API, and `arxiv_search` queries [ArcXiv](https://arcxiv.org), an independent search service over arXiv metadata run by coder.company, not arXiv itself (`src/tools/searchtools.py`). Both send the configured operator email in the request `User-Agent`.
 - `visit_webpage` (`VisitWebpageTool`) performs an in-memory HTTP GET with a 20-second timeout and truncates the page to 40 000 characters before converting it to Markdown. The harness itself never writes fetched content to disk.
 
 Everything these tools return is untrusted and flows straight into the model's context. This is a classic *prompt-injection* surface: a page or a search snippet can contain instructions that steer the agent into reading local files, calling other tools, or generating code that does something other than the task. There is no sanitisation layer in between.

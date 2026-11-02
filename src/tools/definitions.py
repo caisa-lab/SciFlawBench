@@ -13,6 +13,7 @@ from tools.searchtools import (
     ImprovedWikipediaSearchTool,
     SerpAPISearchTool,
 )
+from tools.significance import SignificanceTool
 
 # tool registry global object that will keep track of string -> factory mappings for building our tools
 tool_registry = Registry("Tool")
@@ -80,6 +81,11 @@ def make_calculator_tool(watcher) -> WrappedTool:
 @tool_registry.register("numerics")
 def make_numerics_tool(watcher) -> WrappedTool:
     return WrappedTool(wrapped_tool=NumericsTool(), watcher=watcher)
+
+
+@tool_registry.register("significance")
+def make_significance_tool(watcher) -> WrappedTool:
+    return WrappedTool(wrapped_tool=SignificanceTool(), watcher=watcher)
 
 
 @tool_registry.register("json_answer_tool")
