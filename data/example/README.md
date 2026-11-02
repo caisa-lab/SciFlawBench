@@ -8,7 +8,8 @@ Each line of `tasks.jsonl` is a single JSON object describing one task. The four
 
 | Field           | Type                           | Description                                                                                                        |
 | --------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `task_id`       | `str`                          | 32-character MD5 hash of the `task` text.                                                                          |
+| `task_id`       | `str`                          | 32-character MD5 hash of the `task` text, or a fixed id that starts with a letter (see `prompt_md5`).              |
+| `prompt_md5`    | `str` (optional)               | MD5 hash of the `task` text, recorded only when `task_id` is a fixed id.                                           |
 | `task`          | `str`                          | The prompt handed to the agent.                                                                                    |
 | `agent_id`      | `"code_agent" \| "tool_agent"` | Which registered agent should attempt the task.                                                                    |
 | `failure_modes` | `object`                       | The failure modes the task is designed to probe, split into `quantitative` and `qualitative` lists. See [Failure modes](#failure-modes). |
@@ -65,7 +66,7 @@ Every verifier receives the agent's final answer as its first argument and retur
 
 ## Task ids and local files
 
-`task_id` is the **32-character MD5 hash of the `task` text**. Prompts that need a local file reference it through a `{TASK_ID}` placeholder, which stays in the stored prompt; the harness substitutes the real id when the task runs. The file itself lives in `../tasks/assets/<task_id>/`. For example:
+`task_id` is the **32-character MD5 hash of the `task` text**. Prompts that need a local file reference it through a `{TASK_ID}` placeholder, which stays in the stored prompt; the harness substitutes the real id when the task runs. The file itself lives in `../tasks/assets/<task_id>/`. A task can instead keep a fixed `task_id` (one that starts with a letter, e.g. `SFB-0042`) and record the hash in `prompt_md5`; its id, and so its assets folder, then stay the same when the prompt is edited. For example:
 
 ```json
 {
@@ -78,7 +79,7 @@ Every verifier receives the agent's final answer as its first argument and retur
 
 > IMPORTANT: A task must declare any tool it needs that the agent does not already have. The default `code_agent` / `tool_agent` ship with `web_search`, `wikipedia_search`, `visit_webpage`, `calculator`, `current_time` and `arxiv_search`. On the other hand, `read_file`, `json_answer_tool`, `numerics`, `significance`, `cosmology` and `sky` are opt-in and have to be listed in `extra_tools`. Listing a tool the agent already has is an error: smolagents rejects duplicate tool names, so only genuinely missing tools belong in `extra_tools`. See the [tool list](../../examples/README.md#tool-overrides) for every registered tool.
 
-Prompts that use no local files simply hash their plain text. Because the stored prompt is what gets hashed, the harness verifies `md5(task) == task_id` at load time and refuses any sample whose id no longer matches its prompt. See [`../tasks/assets/README.md`](../tasks/assets/README.md) for the full convention.
+Prompts that use no local files simply hash their plain text. Because the stored prompt is what gets hashed, the harness verifies `md5(task) == task_id` (or `== prompt_md5` for a fixed id) at load time and refuses any sample whose hash no longer matches its prompt. See [`../tasks/assets/README.md`](../tasks/assets/README.md) for the full convention.
 
 ## Usage
 
