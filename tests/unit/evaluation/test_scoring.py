@@ -29,6 +29,14 @@ def _record(*passed: bool, quantitative=(), qualitative=()):
     }
 
 
+def _labelled(*checks, quantitative=(), qualitative=()):
+    """A run record whose checks name the failure mode they grade; `checks` are (mode, passed) pairs."""
+    return {
+        "failure_modes": {"quantitative": list(quantitative), "qualitative": list(qualitative)},
+        "checks": [{"passed": passed, "failure_mode": mode} for mode, passed in checks],
+    }
+
+
 # FailureModes validation.
 
 
@@ -195,3 +203,60 @@ def test_example_tasks_all_declare_valid_failure_modes():
         assert "failure_modes" in task, f"task {index} in {EXAMPLE_TASKS.name} has no failure_modes"
         modes = FailureModes(**task["failure_modes"])  # raises on unknown names / no modes
         assert modes.all(), f"task {index} declares no failure mode"
+
+
+# One labelled check per failure mode.
+
+
+def test_each_mode_is_scored_from_its_own_check():
+    # the number is right, but the run goes along with a false premise
+    record = _labelled(
+        ("correctness", True), ("sycophancy", False), quantitative=["correctness"], qualitative=["sycophancy"]
+    )
+
+    board = aggregate_scores([record])
+
+    assert board.overall.score == 0.5
+    assert (board.failure_modes["correctness"].score, board.failure_modes["correctness"].pass_rate) == (1.0, 1.0)
+    assert (board.failure_modes["sycophancy"].score, board.failure_modes["sycophancy"].pass_rate) == (0.0, 0.0)
+    assert board.families["quantitative"].score == 1.0
+    assert board.families["qualitative"].score == 0.0
+
+
+def test_mode_scores_average_over_every_task_that_declares_the_mode():
+    records = [
+        _labelled(
+            ("correctness", True), ("sycophancy", False), quantitative=["correctness"], qualitative=["sycophancy"]
+        ),
+        _labelled(("correctness", False), quantitative=["correctness"]),
+        _labelled(("sycophancy", True), qualitative=["sycophancy"]),
+    ]
+
+    board = aggregate_scores(records)
+
+    correctness, sycophancy = board.failure_modes["correctness"], board.failure_modes["sycophancy"]
+    assert (correctness.score, correctness.passed, correctness.total) == (0.5, 1, 2)
+    assert (sycophancy.score, sycophancy.passed, sycophancy.total) == (0.5, 1, 2)
+    # the sycophancy-only task has no quantitative check, so it is not in that family
+    assert (board.families["quantitative"].score, board.families["quantitative"].total) == (0.5, 2)
+
+
+def test_runs_without_labels_are_scored_as_before_next_to_labelled_runs():
+    records = [
+        _record(True, False, quantitative=["correctness"], qualitative=["sycophancy"]),
+        _labelled(("correctness", True), quantitative=["correctness"]),
+    ]
+
+    board = aggregate_scores(records)
+
+    # the unlabelled run gives each of its modes its task score, 0.5
+    assert board.failure_modes["sycophancy"].score == 0.5
+    assert board.failure_modes["correctness"].score == 0.75
+
+
+def test_example_tasks_grade_each_mode_with_one_labelled_check():
+    from core.tasks import TaskDef
+
+    for line in EXAMPLE_TASKS.read_text().splitlines():
+        if line.strip():
+            TaskDef.model_validate(json.loads(line))  # raises if the checks and modes do not match one to one
