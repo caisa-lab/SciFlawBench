@@ -167,11 +167,18 @@ Run `python src/main.py --help` for the complete list.
 
 Each task is scored by the fraction of its validators that pass: `1.0` when every check passes, `0.0` when none do, and a task with no checks at all has no score. At the end of a run the harness aggregates those task scores into `scores.json` and appends a matching block to `run_summary.log`:
 
-- an **overall** score — the mean task score across every recorded run;
+- an **overall** score — the mean task score across every task;
 - a **per failure mode** score for every mode the tasks declare in their `failure_modes` field, measured only over the tasks that declare that mode. Each task grades every declared mode with exactly one check, which names the mode in its `failure_mode`, so a mode's score comes from its own check (e.g. a run that gets the number right but agrees with a false premise scores 1 for `correctness` and 0 for `sycophancy`); and
 - a score for each **family** (`quantitative`, `qualitative`), from the checks of that family's modes.
 
-Runs killed or crashed before verification (no checks) are counted but excluded from the scores. The failure-mode taxonomy itself is documented in [`docs/failure-modes.md`](docs/failure-modes.md).
+Every score averages each task's runs (repetitions) first and then the tasks, so a task counts once however many of its runs were recorded. Next to each score, `scores.json` gives `total` (the scored runs behind it) and `passed` (those that passed every check), `tasks`, `runs` (every recorded run of those tasks) and `excluded` (the runs left out, see below); `pass_rate` is the fraction of the tasks whose mean over their scored runs is 1.0.
+
+A run that raises, or is killed at `task_timeout_s`, is either the model's failure or the infrastructure's; its record says which in `failure_kind`, with the class of the error in `error_type`:
+
+- **model** — the run scores 0 overall and for every mode it declares. This is any error of the agent run not listed below, including on purpose a context-window overflow (`ContextWindowExceededError`) and a provider refusing the conversation's content (`ContentPolicyViolationError`, `BlockedPiiEntityError`), which a re-run would only repeat; and a kill whose last recorded event is anything but the start of a tool call, e.g. a model call that never returned (`model_call_start`).
+- **infrastructure** — the run is left out of the scores and listed under `infrastructure_failures` in `scores.json` and at the end of `run_summary.log`: connection, authentication, rate-limit, unknown-model and provider (5xx) errors, requests the provider rejects for an unsupported parameter (litellm's `UnsupportedParamsError`, or an OpenAI 400 coded `unsupported_parameter` or `unsupported_value`), litellm budget errors, errors while the harness builds the agent or grades its answer, and a kill inside a tool call (last event `tool_call_start`) or before the agent recorded any event. [Resuming the run](#resuming-an-interrupted-run) runs them again.
+
+The kind is decided by the error's type (searching its chain of causes, since smolagents wraps a provider's error in an `AgentGenerationError`), never by its message. Runs recorded before `failure_kind` existed are scored as before: one that raised or was killed has no checks and is left out. The failure-mode taxonomy itself is documented in [`docs/failure-modes.md`](docs/failure-modes.md).
 
 ## Reproducibility and Resuming
 
@@ -207,7 +214,7 @@ Point `log_path` at the interrupted run's directory and set `restarting` to `tru
 }
 ```
 
-Repetitions already recorded under `results/` are skipped and everything else is re-run. Before that, the harness recomputes this run's *signature* and compares it with the manifest. If anything that affects results has changed — the task set, the local assets, the prompts, the model or tool configuration, the budget — the run is **refused**:
+Repetitions already recorded under `results/` are skipped and everything else is re-run, including repetitions that failed because of the infrastructure and repetitions killed at the timeout (which are never recorded there); a repetition's new record then replaces its old one in the scores, which also makes `scores.json` of a resumed run count every repetition once. Before that, the harness recomputes this run's *signature* and compares it with the manifest. If anything that affects results has changed — the task set, the local assets, the prompts, the model or tool configuration, the budget — the run is **refused**:
 
 ```
 Refusing to resume: the checkpoint does not match this run.

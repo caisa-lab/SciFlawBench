@@ -36,7 +36,7 @@ Optional fields let a task do more than the minimum:
 - A task must declare **at least one** mode.
 
 The declared modes are copied into every result record. At the end of a run the harness averages the scores (see [Validators](#validators)) into `scores.json` and appends a score block to
-`run_summary.log`: the overall score plus one score per failure mode, each measured only over the tasks that declare it and taken from that mode's own check.
+`run_summary.log`: the overall score plus one score per failure mode, each measured only over the tasks that declare it, taken from that mode's own check, and with every task counting once. A run that fails because of the model scores 0 (see [Scoring](../../README.md#scoring)).
 
 ### Validators
 

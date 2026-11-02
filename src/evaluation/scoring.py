@@ -38,6 +38,13 @@ FAILURE_MODES_BY_FAMILY: dict[str, tuple[str, ...]] = {
     "qualitative": QUALITATIVE_FAILURE_MODES,
 }
 
+#: The `failure` of a run that raised or was killed because of the model: it scores 0.
+MODEL_FAILURE = "model"
+
+#: The `failure` of a run that raised because the provider or the connection to it failed: it is left out of the
+#: scores and listed, so it can be re-run.
+INFRASTRUCTURE_FAILURE = "infrastructure"
+
 
 class FailureModes(BaseModel):
     """
@@ -93,14 +100,13 @@ class ModeScore:
 
     label: str
     family: str | None  # "quantitative" / "qualitative", or None for the overall bucket
-    score: float | None  # mean task score, or None when the bucket has no scored runs
-    passed: int  # scored runs whose task passed every check
-    total: int  # scored runs in the bucket
-
-    @property
-    def pass_rate(self) -> float | None:
-        """Fraction of runs in the bucket whose task passed every check."""
-        return None if self.total == 0 else self.passed / self.total
+    score: float | None  # mean over tasks of each task's mean run score, or None when the bucket has no scored runs
+    passed: int  # scored runs that passed every check in the bucket
+    total: int  # scored runs in the bucket (a run that failed because of the model is scored, as 0)
+    tasks: int = 0  # tasks with at least one scored run in the bucket
+    runs: int = 0  # every recorded run of the bucket's tasks: the scored ones plus the excluded ones
+    excluded: int = 0  # runs left out: infrastructure failures, and runs without checks
+    pass_rate: float | None = None  # fraction of the tasks whose mean over their scored runs is 1.0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -108,6 +114,9 @@ class ModeScore:
             "pass_rate": None if self.pass_rate is None else round(self.pass_rate, 6),
             "passed": self.passed,
             "total": self.total,
+            "tasks": self.tasks,
+            "runs": self.runs,
+            "excluded": self.excluded,
         }
 
 
@@ -118,13 +127,18 @@ class ScoreBoard:
     overall: ModeScore
     families: dict[str, ModeScore] = field(default_factory=dict)
     failure_modes: dict[str, ModeScore] = field(default_factory=dict)
-    runs: int = 0  # every record seen, including ones with nothing to score
-    unscored_runs: int = 0  # records with no checks at all (killed or crashed before verification)
+    runs: int = 0  # every record seen (a repetition recorded twice counts once), including ones with nothing to score
+    unscored_runs: int = 0  # records left out of every score: infrastructure failures and runs without checks
+    model_failures: int = 0  # runs that raised or were killed because of the model, scored 0
+    # the runs to re-run: {"task_id", "repetition", "error_type", "error"} for each infrastructure failure
+    infrastructure_failures: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "runs": self.runs,
             "unscored_runs": self.unscored_runs,
+            "model_failures": self.model_failures,
+            "infrastructure_failures": self.infrastructure_failures,
             "overall": self.overall.as_dict(),
             "families": {name: score.as_dict() for name, score in self.families.items()},
             "failure_modes": {name: score.as_dict() for name, score in self.failure_modes.items()},
@@ -207,14 +221,21 @@ def aggregate_scores(records: Iterable[Mapping[str, Any]]) -> ScoreBoard:
     Aggregate recorded runs into overall, per-family and per-failure-mode scores.
 
     A run is one record carrying a checks list (under `checks` or `check_results`) and, optionally,
-    a `failure_modes` block. Runs with no checks are counted in `runs`/`unscored_runs` but excluded
-    from every score, since there is nothing to grade. Per-failure-mode buckets only include runs
+    a `failure_modes` block, its task's `id`, its `repetition` and, for a run that raised or was
+    killed, a `failure_kind` saying whose fault that was. Per-failure-mode buckets only include runs
     whose task declares that mode, so a mode is never diluted by tasks that do not probe it.
 
     The overall score of a run is the fraction of all its checks that passed. When the checks name
     the failure mode they grade (one check per mode), each mode is scored from its own check and each
     family from the checks of its modes; runs recorded without these labels give every declared mode
-    and family the run's overall score, as before.
+    and family the run's overall score, as before. A run that failed because of the model scores 0
+    overall and for every mode and family it declares. A run that failed because of the
+    infrastructure is left out of every score and listed in `infrastructure_failures`; any other
+    run without checks is left out too, since there is nothing to grade (as are runs recorded before
+    `failure_kind` existed that raised or were killed).
+
+    Each task counts once: a bucket's score is the mean over its tasks of each task's mean over its
+    runs. A repetition recorded more than once (re-run after resuming) counts with its last record.
 
     Args:
         records (Iterable[Mapping]): the run records (as written to `aggregate_results.jsonl`)
@@ -227,39 +248,49 @@ def aggregate_scores(records: Iterable[Mapping[str, Any]]) -> ScoreBoard:
 
     runs = 0
     unscored = 0
-    for record in records:
+    model_failures = 0
+    infrastructure_failures: list[dict[str, Any]] = []
+    for index, record in enumerate(_last_record_of_each_repetition(records)):
         runs += 1
+        # A record without an id (legacy runs, tests) is its own task.
+        task = record.get("id", f"record {index}")
         checks = record_check_results(record)
         score = task_score(checks)
         if score is None:
+            if record.get("failure_kind") == MODEL_FAILURE:
+                model_failures += 1
+                for bucket in _declared_buckets(record, overall, families, modes):
+                    bucket.add(task, 0.0)
+                continue
             unscored += 1
+            for bucket in _declared_buckets(record, overall, families, modes):
+                bucket.exclude()
+            if record.get("failure_kind") == INFRASTRUCTURE_FAILURE:
+                infrastructure_failures.append(
+                    {
+                        "task_id": record.get("id"),
+                        "repetition": record.get("repetition"),
+                        "error_type": record.get("error_type"),
+                        "error": _last_line(record),
+                    }
+                )
             continue
-
-        passed = score >= 1.0
-        overall.add(score, passed)
 
         by_mode = checks_by_failure_mode(checks)
-        if by_mode:
-            for family, family_modes in FAILURE_MODES_BY_FAMILY.items():
-                family_checks = [check for mode in family_modes for check in by_mode.get(mode, [])]
-                if family_checks:
-                    family_score = _fraction_passed(family_checks)
-                    families[family].add(family_score, family_score >= 1.0)
-            for mode, mode_checks in by_mode.items():
-                # A mode from an unknown/legacy source is ignored rather than crashing the summary.
-                if mode in modes:
-                    mode_score = _fraction_passed(mode_checks)
-                    modes[mode].add(mode_score, mode_score >= 1.0)
+        if not by_mode:
+            for bucket in _declared_buckets(record, overall, families, modes):
+                bucket.add(task, score)
             continue
 
-        declared = record_failure_modes(record)
+        overall.add(task, score)
         for family, family_modes in FAILURE_MODES_BY_FAMILY.items():
-            if declared.intersection(family_modes):
-                families[family].add(score, passed)
-        for mode in declared:
+            family_checks = [check for mode in family_modes for check in by_mode.get(mode, [])]
+            if family_checks:
+                families[family].add(task, _fraction_passed(family_checks))
+        for mode, mode_checks in by_mode.items():
             # A mode from an unknown/legacy source is ignored rather than crashing the summary.
             if mode in modes:
-                modes[mode].add(score, passed)
+                modes[mode].add(task, _fraction_passed(mode_checks))
 
     return ScoreBoard(
         overall=overall.build(),
@@ -267,28 +298,81 @@ def aggregate_scores(records: Iterable[Mapping[str, Any]]) -> ScoreBoard:
         failure_modes={mode: acc.build() for mode, acc in modes.items()},
         runs=runs,
         unscored_runs=unscored,
+        model_failures=model_failures,
+        infrastructure_failures=infrastructure_failures,
     )
+
+
+def _last_record_of_each_repetition(records: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The records to score: a repetition recorded more than once (re-run after resuming) keeps only its last."""
+    latest: dict[Any, Mapping[str, Any]] = {}
+    for index, record in enumerate(records):
+        repetition = record.get("repetition")
+        # Records written before they named their repetition cannot be matched up, so each one is kept.
+        key = (record.get("id"), repetition) if "id" in record and repetition is not None else index
+        latest.pop(key, None)
+        latest[key] = record
+    return list(latest.values())
+
+
+def _declared_buckets(
+    record: Mapping[str, Any],
+    overall: "_Accumulator",
+    families: dict[str, "_Accumulator"],
+    modes: dict[str, "_Accumulator"],
+) -> list["_Accumulator"]:
+    """The overall bucket and the bucket of every family and mode the run's task declares."""
+    declared = record_failure_modes(record)
+    buckets = [overall]
+    buckets += [families[family] for family, members in FAILURE_MODES_BY_FAMILY.items() if declared & set(members)]
+    # A mode from an unknown/legacy source is ignored rather than crashing the summary.
+    buckets += [modes[mode] for mode in declared if mode in modes]
+    return buckets
+
+
+def _last_line(record: Mapping[str, Any]) -> str:
+    """
+    The last line of a run's error (the exception and its message), shortened for the score summary; for a run
+    killed at the timeout, the event it was killed in.
+    """
+    lines = [line.strip() for line in str(record.get("error") or "").splitlines() if line.strip()]
+    if lines:
+        return lines[-1][:200]
+    last_event = record.get("last_event")
+    if isinstance(last_event, Mapping):
+        return f"killed during {last_event.get('event_type')}"
+    return ""
 
 
 @dataclass
 class _Accumulator:
-    """Running mean of task scores for one scoring bucket."""
+    """The run scores of one scoring bucket, kept per task so that every task counts once."""
 
     label: str
     family: str | None
-    total: int = 0
-    passed: int = 0
-    _score_sum: float = 0.0
+    excluded: int = 0
+    _by_task: dict[Any, list[float]] = field(default_factory=dict)
 
-    def add(self, score: float, passed: bool) -> None:
-        self.total += 1
-        self._score_sum += score
-        if passed:
-            self.passed += 1
+    def add(self, task: Any, score: float) -> None:
+        self._by_task.setdefault(task, []).append(score)
+
+    def exclude(self) -> None:
+        self.excluded += 1
 
     def build(self) -> ModeScore:
-        score = None if self.total == 0 else self._score_sum / self.total
-        return ModeScore(label=self.label, family=self.family, score=score, passed=self.passed, total=self.total)
+        task_means = [sum(scores) / len(scores) for scores in self._by_task.values()]
+        runs = [score for scores in self._by_task.values() for score in scores]
+        return ModeScore(
+            label=self.label,
+            family=self.family,
+            score=sum(task_means) / len(task_means) if task_means else None,
+            passed=sum(score >= 1.0 for score in runs),
+            total=len(runs),
+            tasks=len(task_means),
+            runs=len(runs) + self.excluded,
+            excluded=self.excluded,
+            pass_rate=sum(mean >= 1.0 for mean in task_means) / len(task_means) if task_means else None,
+        )
 
 
 def _format_score(score: float | None) -> str:
@@ -300,20 +384,36 @@ def format_scoreboard(board: ScoreBoard) -> str:
     lines = [
         "Scores",
         "=" * 72,
-        f"  runs recorded: {board.runs} ({board.unscored_runs} with no checks, excluded from scores)",
-        f"  {'overall':<40} {_format_score(board.overall.score)}   [{board.overall.passed}/{board.overall.total}]",
+        f"  runs recorded: {board.runs} ({board.model_failures} failed because of the model and scored 0;"
+        f" {board.unscored_runs} excluded from scores, {len(board.infrastructure_failures)} of them"
+        " infrastructure failures)",
+        "  scores average each task's runs first; [passed/scored runs, tasks]",
+        f"  {'overall':<40} {_format_score(board.overall.score)}   {_format_counts(board.overall)}",
         "",
         "  by family",
     ]
     for name, score in board.families.items():
-        lines.append(f"    {name:<38} {_format_score(score.score)}   [{score.passed}/{score.total}]")
+        lines.append(f"    {name:<38} {_format_score(score.score)}   {_format_counts(score)}")
 
     lines.append("")
     lines.append("  by failure mode")
     for name, score in board.failure_modes.items():
-        lines.append(f"    {name:<38} {_format_score(score.score)}   [{score.passed}/{score.total}]")
+        lines.append(f"    {name:<38} {_format_score(score.score)}   {_format_counts(score)}")
+
+    if board.infrastructure_failures:
+        lines.append("")
+        lines.append("  infrastructure failures, left out of the scores (resume the run to re-run them)")
+        for failure in board.infrastructure_failures:
+            lines.append(
+                f"    task {failure['task_id']}.{failure['repetition']}: {failure['error_type']}: {failure['error']}"
+            )
 
     return "\n".join(lines)
+
+
+def _format_counts(score: ModeScore) -> str:
+    excluded = f", {score.excluded} excluded" if score.excluded else ""
+    return f"[{score.passed}/{score.total}, {score.tasks} tasks{excluded}]"
 
 
 def scoreboard_to_dict(board: ScoreBoard) -> dict[str, Any]:

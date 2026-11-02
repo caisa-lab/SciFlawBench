@@ -4,22 +4,24 @@ import json
 import logging
 import multiprocessing as mp
 import os
+import sys
 import time
 import traceback
 from pathlib import Path
 from typing import Any
 
+import openai
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agents.base import build_agent
 from core.config import DEFAULT_MAX_TRACE_TOKENS, RunConfig
-from core.events import AgentEvent, EventWatcher
+from core.events import AgentEvent, EventType, EventWatcher
 from core.task_ids import FIXED_ID_PATTERN, TaskId, hash_prompt, render_task, task_id_slug
 from evaluation.base import VerificationResult, VerifierContext, VerifierDef, run_check, wants_context
 from evaluation.definitions import verifier_registry
 from evaluation.judge import LiteLLMJudge
 from evaluation.print_report import render_trace_markdown, save_markdown_report
-from evaluation.scoring import FailureModes
+from evaluation.scoring import INFRASTRUCTURE_FAILURE, MODEL_FAILURE, FailureModes
 from models.memory import MemoryOffloader
 from tools.artifacts import ArtifactStore
 from tools.base import ToolDef
@@ -134,6 +136,88 @@ class TaskResult(BaseModel):
     full_trace: list[dict]
     failure_modes: FailureModes | None = None
     check_results: list[VerificationResult] = Field(default_factory=list)
+    # for a run that raised or was killed: "model" (it scores 0) or "infrastructure" (left out of the scores and run
+    # again on resume), and the class of the error that decided it
+    failure_kind: str | None = None
+    error_type: str | None = None
+
+
+#: Errors that are not the model's fault. litellm's errors subclass the matching openai ones, so these cover both
+#: providers.
+_INFRASTRUCTURE_ERRORS: tuple[type[BaseException], ...] = (
+    ConnectionError,
+    openai.APIConnectionError,  # includes timeouts
+    openai.AuthenticationError,
+    openai.PermissionDeniedError,
+    openai.NotFoundError,  # the provider does not know the model or the endpoint
+    openai.RateLimitError,
+)
+
+#: litellm's errors for a request it refuses to send. They are looked up only when litellm is loaded (importing it
+#: takes a second), since none of them can have been raised otherwise.
+_LITELLM_INFRASTRUCTURE_ERRORS = ("UnsupportedParamsError", "BudgetExceededError")
+
+#: The `code` of an OpenAI-style 400 for a parameter or value the model does not accept.
+_UNSUPPORTED_PARAMETER_CODES = {"unsupported_parameter", "unsupported_value"}
+
+
+def classify_failure(exc: BaseException) -> tuple[str, str]:
+    """
+    Whether a run that raised failed because of the model or because of the infrastructure around it.
+
+    The decision rests on exception types (and a provider's error `code`), never on messages. An error is the
+    infrastructure's when it, or any error in its chain of causes, is a connection, authentication, rate-limit,
+    unknown-model or provider (5xx) error, a request the provider rejects for an unsupported parameter (litellm's
+    `UnsupportedParamsError`, or an OpenAI 400 coded `unsupported_parameter` or `unsupported_value`), or a litellm
+    budget error. Anything else is the model's, on purpose also a `ContextWindowExceededError` (the model filled its
+    context) and a provider refusing the conversation's content (`ContentPolicyViolationError`,
+    `BlockedPiiEntityError`), which a re-run would only repeat. Providers' errors usually arrive wrapped (smolagents
+    raises `AgentGenerationError` from them), so the whole chain is searched.
+
+    Args:
+        exc (BaseException): the exception the run raised
+
+    Returns (tuple[str, str]): `INFRASTRUCTURE_FAILURE` or `MODEL_FAILURE`, and the class name of the error that
+    decided it: the matching error for the infrastructure, the innermost error of the chain for the model
+    """
+    litellm_exceptions = sys.modules.get("litellm.exceptions")
+    litellm_errors = tuple(
+        error
+        for error in (getattr(litellm_exceptions, name, None) for name in _LITELLM_INFRASTRUCTURE_ERRORS)
+        if isinstance(error, type)
+    )
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    innermost = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        innermost = current
+        if (
+            isinstance(current, _INFRASTRUCTURE_ERRORS + litellm_errors)
+            or (isinstance(current, openai.APIStatusError) and current.status_code >= 500)
+            or (isinstance(current, openai.BadRequestError) and current.code in _UNSUPPORTED_PARAMETER_CODES)
+        ):
+            return INFRASTRUCTURE_FAILURE, type(current).__name__
+        current = current.__cause__ or current.__context__
+    return MODEL_FAILURE, type(innermost).__name__
+
+
+def timeout_failure_kind(last_event: AgentEvent | None) -> str:
+    """
+    Whose fault a run killed at `task_timeout_s` is, judged by the last event it recorded.
+
+    A kill inside a tool call (the last event is a `tool_call_start`) is a hung tool or network call, and a kill
+    before the agent recorded any event is a hung setup: both are the infrastructure's. Any other kill, e.g. inside
+    a model call that never returned or in the agent's own code, is the model's.
+
+    Args:
+        last_event (AgentEvent | None): the run's last event, or None when it recorded none
+
+    Returns (str): `INFRASTRUCTURE_FAILURE` or `MODEL_FAILURE`
+    """
+    if last_event is None or last_event.event_type == EventType.ToolCallStart:
+        return INFRASTRUCTURE_FAILURE
+    return MODEL_FAILURE
 
 
 def verifier_wants_context(name: str) -> bool:
@@ -222,7 +306,12 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
     prompt = task.rendered_task
 
     # this dictionary will get passed into the shared log file
-    to_log = {"id": task.task_id, "task": prompt, "failure_modes": task.failure_modes.model_dump()}
+    to_log = {
+        "id": task.task_id,
+        "repetition": task.repetition,
+        "task": prompt,
+        "failure_modes": task.failure_modes.model_dump(),
+    }
 
     import signal
 
@@ -231,6 +320,8 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
     ):  # this function runs if this task ever gets terminated by the manager  # TODO: unused args?
         to_log["last_event"] = dataclasses.asdict(events[-1]) if events else None  # type: ignore
         to_log["status"] = "terminated"
+        to_log["failure_kind"] = timeout_failure_kind(events[-1] if events else None)
+        to_log["error_type"] = "task_timeout"
         to_log["time_elapsed"] = time.time() - start_time  # type: ignore
 
         res_queue.put({"task_id": task.task_id, "repetition": task.repetition, "kind": "killed", "to_log": to_log})
@@ -264,6 +355,8 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
                 index_max_chars=run_config.memory_index_max_chars,
             )
 
+    failure_kind = error_type = None
+    agent_running = False
     try:
         built_agent = build_agent(
             task.agent_id,
@@ -276,7 +369,9 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
             tool_output_max_chars=run_config.tool_output_max_chars,
             memory_offloader=memory_offloader,
         )
+        agent_running = True
         out = built_agent.watcher("agent", built_agent.definition.name, built_agent.agent.run, prompt)
+        agent_running = False
         success = True
         error_str = ""
         verifier_context = build_verifier_context(task, prompt, out, run_config, events, success)
@@ -286,11 +381,17 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
             ).model_copy(update={"failure_mode": verifier.failure_mode})
             for verifier in task.validators
         ]
-    except Exception:
+    except Exception as exc:
         out = None
         success = False
         error_str = traceback.format_exc()
         verifier_results = []
+        # Only the agent run itself can fail because of the model; building the agent and grading its answer are
+        # the harness's part, so an error there is not held against the model.
+        if agent_running:
+            failure_kind, error_type = classify_failure(exc)
+        else:
+            failure_kind, error_type = INFRASTRUCTURE_FAILURE, type(exc).__name__
 
     result = TaskResult(
         task_id=task.task_id,
@@ -303,6 +404,8 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
         full_trace=[dataclasses.asdict(event) for event in events],
         failure_modes=task.failure_modes,
         check_results=verifier_results,
+        failure_kind=failure_kind,
+        error_type=error_type,
     )
 
     if not output_dir.exists():
@@ -325,6 +428,8 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
     to_log["status"] = "success" if success else "failed"
     to_log["time_elapsed"] = time.time() - start_time
     to_log["error"] = error_str
+    to_log["failure_kind"] = failure_kind
+    to_log["error_type"] = error_type
 
     res_queue.put(
         {
@@ -366,7 +471,8 @@ def completed_repetitions(result_file: Path) -> set[int]:
     Lines are read defensively: a partially written trailing line (the process was
     killed mid-write) is skipped rather than counted, so an interrupted run does not
     silently lose a repetition. Each record's own `repetition` field is preferred;
-    the line index is only used as a fallback for records that lack it.
+    the line index is only used as a fallback for records that lack it. A repetition
+    that failed because of the infrastructure is not counted, so resuming runs it again.
     """
     repetitions: set[int] = set()
     with open(result_file, encoding="utf-8") as fh:
@@ -377,6 +483,8 @@ def completed_repetitions(result_file: Path) -> set[int]:
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            if isinstance(record, dict) and record.get("failure_kind") == INFRASTRUCTURE_FAILURE:
                 continue
             repetition = record.get("repetition") if isinstance(record, dict) else None
             repetitions.add(repetition if isinstance(repetition, int) else index)

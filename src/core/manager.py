@@ -355,6 +355,8 @@ class RuntimeManager:
                 if checks:
                     line += f"  Score: {passed / len(checks):.2f}"
             else:
+                if log.get("failure_kind"):
+                    line += f"  Failure: {log['failure_kind']} ({log.get('error_type')})"
                 line += f"  Last Event: {log.get('last_event', '')}"
             f.write(line + "\n")
 

@@ -343,6 +343,11 @@ def test_timedout_tasks(tmp_path, monkeypatch):
     assert entry["status"] == "terminated"
     assert entry["time_elapsed"]
     assert entry["last_event"]
+    # killed while waiting on a model call that never returned: that counts against the model
+    assert entry["last_event"]["event_type"] == "model_call_start"
+    assert (entry["failure_kind"], entry["error_type"], entry["repetition"]) == ("model", "task_timeout", 1)
+    scores = json.loads((tmp_path / "logs" / "scores.json").read_text())
+    assert (scores["model_failures"], scores["overall"]["score"]) == (1, 0.0)
 
 
 def test_timedout_repetitions_keep_their_own_partial_trace(tmp_path, monkeypatch):
@@ -418,6 +423,8 @@ def test_task_killed_before_its_first_event_is_still_reported(tmp_path, monkeypa
     message = queue.get(timeout=5)
     assert message["kind"] == "killed"
     assert message["to_log"]["last_event"] is None
+    # nothing ran yet, so the kill is not held against the model
+    assert message["to_log"]["failure_kind"] == "infrastructure"
     assert json.loads((tmp_path / "001.1.partial.json").read_text()) == []
 
 
@@ -615,13 +622,113 @@ def test_run_writes_overall_and_per_failure_mode_scores(tmp_path, monkeypatch):
 
     scores = json.loads((tmp_path / "logs" / "scores.json").read_text())
     assert scores["overall"]["score"] == 1.0
-    assert scores["failure_modes"]["correctness"] == {"score": 1.0, "pass_rate": 1.0, "passed": 1, "total": 1}
+    assert scores["failure_modes"]["correctness"] == {
+        "score": 1.0,
+        "pass_rate": 1.0,
+        "passed": 1,
+        "total": 1,
+        "tasks": 1,
+        "runs": 1,
+        "excluded": 0,
+    }
     # each check carries the failure mode it grades into the run records
     record = json.loads((tmp_path / "logs" / "aggregate_results.jsonl").read_text().splitlines()[0])
     assert [check["failure_mode"] for check in record["checks"]] == ["correctness"]
     # A mode no task declares is still reported, with no runs behind it.
-    assert scores["failure_modes"]["sycophancy"] == {"score": None, "pass_rate": None, "passed": 0, "total": 0}
+    assert scores["failure_modes"]["sycophancy"] == {
+        "score": None,
+        "pass_rate": None,
+        "passed": 0,
+        "total": 0,
+        "tasks": 0,
+        "runs": 0,
+        "excluded": 0,
+    }
 
     summary = (tmp_path / "logs" / "run_summary.log").read_text()
     assert "overall" in summary
     assert "by failure mode" in summary
+
+
+def _one_check_task(tmp_path):
+    task_file = tmp_path / "tasks.jsonl"
+    task_file.write_text(
+        '{"task_id": 1, "task": "say hi", "agent_id": "fake_agent",'
+        ' "failure_modes": {"quantitative": ["correctness"]},'
+        ' "validators": [{"name": "content:contains_str", "kwargs": {"expected": "done"},'
+        ' "failure_mode": "correctness"}]}\n'
+    )
+    return task_file
+
+
+def test_a_run_that_fails_because_of_the_model_scores_zero(tmp_path, monkeypatch):
+    setup_basics(tmp_path, monkeypatch)
+    monkeypatch.setenv("ENABLE_TEST_FAKES", "1")
+    model = ModelConfig(
+        provider="fake_model",
+        model_id="fake",
+        api_key_env="FAKE_KEY",
+        extra_kwargs={**FAKE_MODEL_KWARGS, "error": "context_length"},
+    )
+
+    RuntimeManager(_resume_conf(tmp_path, _one_check_task(tmp_path), model=model)).run()
+
+    record = json.loads((tmp_path / "logs" / "aggregate_results.jsonl").read_text())
+    assert (record["status"], record["failure_kind"], record["repetition"]) == ("failed", "model", 1)
+    assert record["error_type"] == "BadRequestError"  # the provider's context-length error
+    scores = json.loads((tmp_path / "logs" / "scores.json").read_text())
+    assert (scores["model_failures"], scores["unscored_runs"]) == (1, 0)
+    assert scores["overall"]["score"] == 0.0
+    correctness = scores["failure_modes"]["correctness"]
+    assert (correctness["score"], correctness["total"]) == (0.0, 1)
+
+
+def test_an_error_while_building_the_agent_is_not_held_against_the_model(tmp_path, monkeypatch):
+    setup_basics(tmp_path, monkeypatch)
+    task_file = _one_check_task(tmp_path)
+    taskdef = TaskDef(**json.loads(task_file.read_text()))
+
+    def broken_build(*args, **kwargs):
+        raise ValueError("no tool is registered under 'fake_search'")
+
+    monkeypatch.setattr("core.tasks.build_agent", broken_build)
+    queue = mp.Queue()
+    run_task(taskdef, _resume_conf(tmp_path, task_file), tmp_path, queue)
+
+    message = queue.get(timeout=5)
+    to_log = message["to_log"]
+    assert (to_log["status"], to_log["failure_kind"], to_log["error_type"]) == (
+        "failed",
+        "infrastructure",
+        "ValueError",
+    )
+
+
+def test_an_infrastructure_failure_is_left_out_and_run_again_on_resume(tmp_path, monkeypatch):
+    setup_basics(tmp_path, monkeypatch)
+    monkeypatch.setenv("ENABLE_TEST_FAKES", "1")
+    task_file = _one_check_task(tmp_path)
+    out_of_credits = ModelConfig(
+        provider="fake_model",
+        model_id="fake",
+        api_key_env="FAKE_KEY",
+        extra_kwargs={**FAKE_MODEL_KWARGS, "error": "rate_limit"},
+    )
+
+    RuntimeManager(_resume_conf(tmp_path, task_file, model=out_of_credits)).run()
+
+    scores = json.loads((tmp_path / "logs" / "scores.json").read_text())
+    assert scores["overall"]["score"] is None
+    assert scores["unscored_runs"] == 1
+    [failure] = scores["infrastructure_failures"]
+    assert (failure["task_id"], failure["repetition"], failure["error_type"]) == (1, 1, "RateLimitError")
+
+    # once the provider is back, resuming runs the repetition again and its new record replaces the failure
+    monkeypatch.setenv("NO_REPRODUCIBILITY_GUARANTEES", "true")  # the model configuration changed
+    resumed = RuntimeManager(_resume_conf(tmp_path, task_file))
+    assert [(task.task_id, task.repetition) for task in resumed._pending] == [(1, 1)]
+    resumed.run()
+
+    scores = json.loads((tmp_path / "logs" / "scores.json").read_text())
+    assert (scores["runs"], scores["unscored_runs"], scores["infrastructure_failures"]) == (1, 0, [])
+    assert scores["overall"]["score"] == 1.0

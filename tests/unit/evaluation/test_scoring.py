@@ -260,3 +260,108 @@ def test_example_tasks_grade_each_mode_with_one_labelled_check():
     for line in EXAMPLE_TASKS.read_text().splitlines():
         if line.strip():
             TaskDef.model_validate(json.loads(line))  # raises if the checks and modes do not match one to one
+
+
+# Failed runs, re-runs and per-task averages.
+
+
+def _run(task, repetition, *checks, failure=None, error_type=None, error="", quantitative=("correctness",), **modes):
+    """A run record of `task`; `checks` are (mode, passed) pairs, and a run that failed has none."""
+    record = _labelled(*checks, quantitative=quantitative, qualitative=modes.get("qualitative", ()))
+    record.update(
+        {"id": task, "repetition": repetition, "failure_kind": failure, "error_type": error_type, "error": error}
+    )
+    return record
+
+
+def test_each_task_counts_once_whatever_its_number_of_runs():
+    records = [
+        _run("a", 1, ("correctness", True)),
+        _run("a", 2, ("correctness", True)),
+        _run("a", 3, ("correctness", True)),
+        _run("b", 1, ("correctness", False)),
+    ]
+
+    board = aggregate_scores(records)
+
+    # task a scores 1 and task b scores 0; a's three runs do not outweigh b's one
+    correctness = board.failure_modes["correctness"]
+    assert (correctness.score, correctness.passed, correctness.total, correctness.tasks) == (0.5, 3, 4, 2)
+    assert board.overall.score == 0.5
+
+
+def test_a_run_that_failed_because_of_the_model_scores_zero_for_every_declared_mode():
+    records = [
+        _run("a", 1, ("correctness", True), ("sycophancy", True), qualitative=["sycophancy"]),
+        _run("a", 2, failure="model", qualitative=["sycophancy"]),  # raised, or was killed at the timeout
+    ]
+
+    board = aggregate_scores(records)
+
+    assert board.model_failures == 1
+    assert board.unscored_runs == 0
+    for bucket in (board.overall, board.failure_modes["correctness"], board.failure_modes["sycophancy"]):
+        assert (bucket.score, bucket.passed, bucket.total, bucket.tasks) == (0.5, 1, 2, 1)
+    assert board.families["qualitative"].score == 0.5
+
+
+def test_a_run_that_failed_because_of_the_infrastructure_is_left_out_and_listed():
+    error = "Traceback (most recent call last):\n  ...\nopenai.RateLimitError: Error code: 429 - no credits\n"
+    records = [
+        _run("a", 1, ("correctness", True)),
+        _run("a", 2, failure="infrastructure", error_type="RateLimitError", error=error),
+    ]
+
+    board = aggregate_scores(records)
+
+    assert (board.runs, board.unscored_runs, board.model_failures) == (2, 1, 0)
+    assert board.infrastructure_failures == [
+        {
+            "task_id": "a",
+            "repetition": 2,
+            "error_type": "RateLimitError",
+            "error": "openai.RateLimitError: Error code: 429 - no credits",
+        }
+    ]
+    correctness = board.failure_modes["correctness"]
+    assert (correctness.score, correctness.total, correctness.runs, correctness.excluded) == (1.0, 1, 2, 1)
+    assert "task a.2: RateLimitError: openai.RateLimitError" in format_scoreboard(board)
+
+
+def test_a_repetition_run_again_counts_with_its_last_record():
+    records = [
+        _run("a", 1, failure="infrastructure", error="openai.APIConnectionError: Connection error."),
+        _run("a", 1, ("correctness", False)),
+    ]
+
+    board = aggregate_scores(records)
+
+    assert (board.runs, board.unscored_runs, board.infrastructure_failures) == (1, 0, [])
+    assert board.overall.score == 0.0
+
+
+def test_the_pass_rate_is_the_fraction_of_tasks_that_pass_on_average():
+    records = [
+        _run("a", 1, ("correctness", True)),
+        _run("a", 2, ("correctness", True)),
+        _run("b", 1, ("correctness", True)),
+        _run("b", 2, ("correctness", False)),
+        _run("b", 3, failure="model"),
+    ]
+
+    correctness = aggregate_scores(records).failure_modes["correctness"]
+
+    assert correctness.score == pytest.approx((1.0 + 1 / 3) / 2)
+    # task a passes on average, task b does not
+    assert correctness.pass_rate == 0.5
+    assert (correctness.passed, correctness.total, correctness.tasks) == (3, 5, 2)
+
+
+def test_records_from_before_failure_kinds_are_left_out_as_before():
+    # a run recorded before this change that crashed: no checks, no failure_kind
+    legacy = {"id": "a", "failure_modes": {"quantitative": ["correctness"]}, "status": "failed", "error": "boom"}
+
+    board = aggregate_scores([_run("a", 1, ("correctness", True)), legacy])
+
+    assert (board.model_failures, board.unscored_runs, board.infrastructure_failures) == (0, 1, [])
+    assert board.overall.score == 1.0
