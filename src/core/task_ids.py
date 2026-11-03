@@ -1,11 +1,17 @@
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# A task id may be a plain integer (legacy/ad-hoc tasks) or the 32-character
-# prompt hash used by SciFlawBench. Both must round-trip through file names.
+# A task id may be a plain integer (legacy/ad-hoc tasks), the 32-character
+# prompt hash used by SciFlawBench, or a fixed id recorded with `prompt_md5`.
+# All must round-trip through file names.
 TaskId = int | str
+
+# A fixed id starts with a letter, so it is never read back from a file name as an
+# integer, and uses only characters that are safe in file names, e.g. "SFB-0042".
+FIXED_ID_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9._-]*")
 
 # Where the task id goes inside a prompt that references its assets folder.
 TASK_ID_PLACEHOLDER = "{TASK_ID}"
@@ -15,7 +21,7 @@ _LEADING_KEYS = ("task_id", "task")
 
 
 def hash_prompt(task: str) -> str:
-    """The canonical 32-character task id for a prompt (md5 of the prompt text)."""
+    """The md5 of a prompt: the task's id by default, or its `prompt_md5` when the id is fixed."""
     return hashlib.md5(task.encode("utf-8")).hexdigest()
 
 
@@ -76,12 +82,13 @@ def render_task_line(obj: dict) -> str:
 
 @dataclass
 class TaskIdChange:
-    """A single task whose id was stale, and how its assets folder moved."""
+    """A single task whose id (or, for a fixed id, `prompt_md5`) was stale, and how its assets folder moved."""
 
     line: int
     old_id: str
     new_id: str
     renamed: tuple[Path, Path] | None = None
+    field: str = "task_id"  # "prompt_md5" when the task keeps a fixed id and only its hash changed
 
 
 @dataclass
@@ -110,6 +117,8 @@ def recompute_task_ids(
 
     When `apply` is true the file is rewritten, and (if `assets_dir` is given)
     each stale task's assets folder is renamed from the old id to the new one.
+    A task with a fixed id (one that records `prompt_md5`) keeps its id and its
+    folder; only its `prompt_md5` is recomputed.
 
     Nothing is written if any line fails to parse, or if a rename would clobber an
     existing folder, so the task file is never left pointing at a missing folder.
@@ -134,14 +143,21 @@ def recompute_task_ids(
 
         old_id = str(obj["task_id"])
         template = authored_template(obj["task"], old_id)
-        new_id = hash_prompt(template)
+        new_hash = hash_prompt(template)
 
-        obj["task_id"] = new_id
         obj["task"] = template
         report.total += 1
 
-        if old_id != new_id:
-            report.changes.append(TaskIdChange(line=lineno, old_id=old_id, new_id=new_id))
+        if "prompt_md5" in obj:
+            # a fixed id stays; only the recorded hash follows the prompt
+            old_hash = str(obj["prompt_md5"])
+            obj["prompt_md5"] = new_hash
+            if old_hash != new_hash:
+                report.changes.append(TaskIdChange(line=lineno, old_id=old_hash, new_id=new_hash, field="prompt_md5"))
+        else:
+            obj["task_id"] = new_hash
+            if old_id != new_hash:
+                report.changes.append(TaskIdChange(line=lineno, old_id=old_id, new_id=new_hash))
 
         out_lines.append(render_task_line(obj))
 
@@ -153,6 +169,8 @@ def recompute_task_ids(
         # half-rename a set of folders and then bail out
         moves: list[tuple[TaskIdChange, Path, Path]] = []
         for change in report.changes:
+            if change.field != "task_id":
+                continue  # a fixed id keeps its folder
             source = assets_dir / change.old_id
             destination = assets_dir / change.new_id
             if not source.is_dir():

@@ -65,6 +65,16 @@ def test_parse_judge_reply_tolerates_fences_and_surrounding_prose():
     assert parse_judge_reply(prose) == (False, "nope")
 
 
+def test_parse_judge_reply_repairs_latex_backslashes():
+    reply = r'{"evaluation": true, "justification": "the ISW lives at \ell \lesssim 40, far above \(0.67^\circ\)"}'
+    assert parse_judge_reply(reply) == (True, r"the ISW lives at \ell \lesssim 40, far above \(0.67^\circ\)")
+
+
+def test_parse_judge_reply_keeps_valid_escapes_when_repairing():
+    reply = r'{"evaluation": false, "justification": "a \"quote\", a \\ backslash, é and \theta with \("}'
+    assert parse_judge_reply(reply) == (False, 'a "quote", a \\ backslash, é and \\theta with \\(')
+
+
 @pytest.mark.parametrize(
     "raw_verdict, expected",
     [(1, True), (0, False), ("true", True), ("False", False), ("yes", True), ("no", False)],

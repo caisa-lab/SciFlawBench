@@ -100,3 +100,55 @@ def test_placeholder_is_kept_and_rendered_at_run_time():
 
 def test_hash_prompt_matches_taskdef_convention():
     assert hash_prompt("abc") == _hash("abc")
+
+
+def test_fixed_id_with_prompt_md5_is_accepted_and_rendered():
+    template = f"Read `data/tasks/assets/{TASK_ID_PLACEHOLDER}/measurements.csv`"
+    task = TaskDef(
+        task_id="SFB-0042", task=template, prompt_md5=_hash(template), agent_id="code_agent", failure_modes=_FM
+    )
+
+    assert task.task_id == "SFB-0042"
+    assert task.rendered_task == "Read `data/tasks/assets/SFB-0042/measurements.csv`"
+
+
+def test_fixed_id_with_a_stale_prompt_md5_is_rejected():
+    with pytest.raises(ValidationError, match="prompt_md5"):
+        TaskDef(
+            task_id="SFB-0042",
+            task="an edited prompt",
+            prompt_md5=_hash("the original prompt"),
+            agent_id="code_agent",
+            failure_modes=_FM,
+        )
+
+
+@pytest.mark.parametrize("task_id", ["0042", 42, "", "-0042", "SFB 0042", "SFB/0042"])
+def test_fixed_id_must_start_with_a_letter_and_be_file_safe(task_id):
+    # a digit-only id would be read back from its result file name as an integer
+    with pytest.raises(ValidationError, match="not a valid fixed id"):
+        TaskDef(task_id=task_id, task="p", prompt_md5=_hash("p"), agent_id="code_agent", failure_modes=_FM)
+
+
+def test_load_completed_recovers_fixed_ids_from_result_filenames(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_KEY", "x")
+    prompt = "read the csv and average a column"
+    line = json.dumps(
+        {
+            "task_id": "SFB-0042",
+            "task": prompt,
+            "prompt_md5": _hash(prompt),
+            "agent_id": "code_agent",
+            "failure_modes": _FM,
+        }
+    )
+
+    conf = _make_run_config(tmp_path, line + "\n")
+    RuntimeManager(conf)  # a first run writes the run manifest
+
+    (conf.log_path / "results" / "SFB-0042.jsonl").write_text("{}")
+
+    manager = RuntimeManager(conf)
+
+    assert manager.load_completed() == {("SFB-0042", 1)}
+    assert manager._pending == []

@@ -19,10 +19,14 @@ class VerificationResult(BaseModel):
     # Extra provenance for the check (the rubric, which judge model graded it, ...).
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    # The failure mode this check grades, copied from its VerifierDef; per-mode scores are built from it.
+    failure_mode: str | None = None
+
 
 class VerifierDef(BaseModel):
     name: str
     kwargs: dict = Field(default_factory=dict)
+    failure_mode: str | None = None  # the declared failure mode this check grades (one check per mode)
 
 
 @dataclass

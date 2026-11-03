@@ -113,6 +113,8 @@ Each entry **replaces** the keyword arguments of that tool for the whole run (ra
 | `json_answer_tool` | `required_fields` (`[]`) | **Not enabled by default**; validates a JSON answer against required keys. Usually added per task |
 | `numerics` | – | **Not enabled by default**; runs fixed numpy operations (linear algebra, least-squares fits, seeded sampling) on numbers the agent passes in. See [`docs/tools.md`](../docs/tools.md) |
 | `significance` | – | **Not enabled by default**; p-value ↔ σ conversions, χ² probabilities and quantiles, and exact CDFs and quantiles of common distributions, computed with scipy. See [`docs/tools.md`](../docs/tools.md) |
+| `cosmology` | – | **Not enabled by default**; distances (in Mpc), times and H(z) in a flat ΛCDM or w0waCDM cosmology, computed with astropy. See [`docs/tools.md`](../docs/tools.md) |
+| `sky` | – | **Not enabled by default**; coordinate conversions between celestial frames, angular separations and HEALPix pixel geometry, computed with astropy and astropy-healpix. See [`docs/tools.md`](../docs/tools.md) |
 | `current_time` | – | Returns the current local time |
 
 The default agents (`code_agent`, `tool_agent`) start with `web_search`, `wikipedia_search`, `visit_webpage`, `calculator`, `current_time` and `arxiv_search`. Tools listed in a task's `extra_tools` are appended on top of that list.
@@ -143,11 +145,12 @@ The task file referenced by `task_file` has its own schema, documented in [`../d
 
 | Field | Type | Description |
 | ----- | ---- | ----------- |
-| `task_id` | string | The 32-character MD5 of the `task` text. Verified at load time; modified prompts are rejected |
+| `task_id` | string | The 32-character MD5 of the `task` text, or a fixed id that starts with a letter (with `prompt_md5`). Verified at load time; modified prompts are rejected |
+| `prompt_md5` | string, optional | The MD5 of the `task` text for a task with a fixed `task_id`; the id then stays the same when the prompt is edited |
 | `task` | string | The prompt handed to the agent. Local files are referenced through the `{TASK_ID}` placeholder, which the harness resolves |
 | `agent_id` | `"code_agent"` \| `"tool_agent"` | Which registered agent attempts the task |
 | `extra_tools` | array | Additional tool definitions (or bare tool-name strings) made available for this task only. Only tools the agent does not already have — declaring a default tool produces a duplicate name, which smolagents rejects |
-| `validators` | array | The correctness criteria applied to the agent's output — this is where a task's expected answer lives, e.g. `{"name": "content:numeric_match", "kwargs": {"expected": "18.4"}}`. See the [verifier reference](../data/example/README.md#validators) for every registered verifier and its kwargs |
+| `validators` | array | The correctness criteria applied to the agent's output — this is where a task's expected answer lives, e.g. `{"name": "content:numeric_match", "kwargs": {"expected": "18.4"}, "failure_mode": "correctness"}`: exactly one per declared failure mode, in the order of the modes (quantitative first). See the [verifier reference](../data/example/README.md#validators) for every registered verifier and its kwargs |
 | `failure_modes` | object | The failure modes the task probes, as `{"quantitative": [...], "qualitative": [...]}`. Required, and at least one mode must be listed. Drives per-failure-mode scoring; see the [failure-mode reference](../docs/failure-modes.md) |
 | `closed_book` | bool | Run just this task closed-book. It is combined with the run-level flag using OR, so either one is enough to enable closed-book for this task |
 | `repetition` | int | Set by the harness when the run is dispatched; do not author it by hand |

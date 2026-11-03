@@ -3,7 +3,9 @@ Recompute SciFlawBench task ids (and rename their assets folders) after prompts 
 
 A task's `task_id` is the md5 of its stored prompt, and tasks that use local files
 keep them in `data/tasks/assets/<task_id>/`. Editing a prompt therefore invalidates
-both the id and the folder name; this tool fixes both, in place.
+both the id and the folder name; this tool fixes both, in place. A task with a fixed
+id records the md5 in `prompt_md5` instead: only that field is updated, and its id
+and folder stay as they are.
 
     python src/make_task_ids.py data/example/tasks.jsonl
     python src/make_task_ids.py data/tasks/v0/tasks.jsonl --check
@@ -65,7 +67,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{task_file}: {report.total} task(s), {len(report.changes)} id(s) {verb}")
 
         for change in report.changes:
-            print(f"  line {change.line}: {change.old_id} -> {change.new_id}")
+            label = "" if change.field == "task_id" else f"{change.field} "
+            print(f"  line {change.line}: {label}{change.old_id} -> {change.new_id}")
             if change.renamed:
                 print(f"      renamed {change.renamed[0]} -> {change.renamed[1]}")
 

@@ -76,7 +76,8 @@ class ArtifactStore:
         manifest_name: str = "manifest.jsonl",
         preview_chars: int = DEFAULT_PREVIEW_CHARS,
     ):
-        self.root = Path(root)
+        # absolute, like the paths resolve() returns, even when log_path (and so `root`) is relative
+        self.root = Path(root).resolve()
         self.enabled = enabled
         self.max_artifact_bytes = int(max_artifact_bytes)
         self.manifest_name = manifest_name
