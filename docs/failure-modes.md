@@ -17,7 +17,7 @@ In a harness task file the flags live in the task's **`failure_modes`** field, w
 ```
 
 Both keys are always present (an empty list means "no mode of that family"); a task must declare at least one mode. This field is what lets the harness report a **score per failure mode**: at the end of a run the scores are averaged into `scores.json` and the summary log, once overall and once
-per mode, each measured only over the tasks that declare it and taken from that mode's own check. See [Scoring](../README.md#scoring).
+per mode, each measured only over the tasks that declare it, taken from that mode's own check, and with every task counting once. See [Scoring](../README.md#scoring).
 
 The checks a task is graded by are its **validators**: **exactly one per declared mode**, naming the mode it grades in `failure_mode`, and listed in the order of the modes (quantitative first). The harness refuses a task whose checks and modes do not match one to one.
 
