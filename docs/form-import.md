@@ -1,6 +1,6 @@
 # Importing tasks from the Google Form
 
-For maintainers. Authors submit tasks through a Google Form; a maintainer imports them as commits on a local branch, reads them, and opens a PR. Authors' personal details stay on the Google account and never reach GitHub.
+For maintainers. Authors submit tasks through a Google Form; a maintainer imports them as commits on a branch, reviews them, and opens a PR. Passing the import only means a task is usable; whether it is a good task is for the reviewer to decide. Authors' personal details stay on the Google account and never reach GitHub.
 
 ```
 Author fills in the form and uploads any files
@@ -14,11 +14,11 @@ utils/form_script.gs, inside Google, on each submission
         ▼
 utils/import_form.py, run by a maintainer
   • reads new submissions and downloads their files (read-only)
-  • checks each task, and reports the bad ones without writing them
-  • adds one commit per good task to the new-tasks branch; it never pushes
+  • checks that each task is usable, and reports the rest without writing them
+  • adds one commit per valid task to the new-tasks branch; it never pushes
         │
         ▼
-The maintainer reads the branch, pushes it and opens a PR to main
+The maintainer pushes the branch, reviews the tasks and opens a PR to main
 ```
 
 ## Setting up the form
@@ -33,6 +33,12 @@ Do this once, signed in to the Google account that will own the form. It has to 
 The importer reads questions by their titles, so a renamed question stops it. To change a question, change `setup`, `import_form.py` and the form together.
 
 Before the first real use, send a fake submission with answers such as `1/2`, `007`, `18.40` and `=2+2` and a prompt with apostrophes, backslashes, line breaks and `Λ`, and check that the import gives them back exactly as typed.
+
+Then clean up before sharing the link, so the first real task gets `SFB-0052`:
+
+1. Delete the fake responses in the form, their rows in the **Responses** and **Authors** tabs, and their uploads in Drive.
+2. In **Script properties**, delete `NEXT_TASK_NUMBER`.
+3. Remove any fake tasks from your local `new-tasks`.
 
 ## Giving the importer read-only access
 
@@ -55,7 +61,13 @@ git fetch origin
 uv run --with google-api-python-client --with google-auth-oauthlib python -m utils.import_form --sheet <id>
 ```
 
-The Google libraries are not project dependencies. If `origin` is your fork, add `--base upstream/main` and fetch that instead. `--export new.jsonl` also writes just the new tasks to a file, so you can run them on a model without running everything.
+Then push the branch straight away, so the next person can continue from it. The import itself never pushes, and the PR to main still waits for the review:
+
+```bash
+git push origin new-tasks
+```
+
+The Google libraries are not project dependencies. If your remote for this repo isn't called `origin`, add `--base <remote>/main`, and fetch and push there instead. `--export new.jsonl` also writes just the new tasks to a file, so you can run them on a model without running everything.
 
 To work without Google, use a CSV export of the sheet, with each submission's files in `<folder>/<task id>/`. Add `--dry-run` to only see the report; it switches no branch and writes nothing:
 
@@ -81,6 +93,12 @@ A single word of a person's name, such as a surname on its own, doesn't stop a t
 
 Uploaded files are never run by the importer, and **a person still has to read them**: the leak check only finds the exact details the author gave, not a nickname or a shortened name.
 
+## Several maintainers
+
+Several people can run the import, one after another. Each needs the spreadsheet id, the client file and a sign-in. Ids can't clash, because the script in Google assigns them.
+
+Fetch first: the import continues from the pushed `new-tasks`, so it only adds what is new. If your local branch and the pushed one have both changed, it stops and imports nothing, so you can decide which to keep. Someone who imports without pushing leaves the next person to import the same tasks again.
+
 ## Reviewing the new tasks
 
 The importer can't tell whether a check suits its prompt, so a person has to, before the PR. Use `--export new.jsonl`, run the new tasks on a model from the `new-tasks` branch, and go through each task:
@@ -94,4 +112,4 @@ The importer can't tell whether a check suits its prompt, so a person has to, be
 - **If a check should read another number:** the form's numeric checks read the last number in the answer. For another one, add `index` to the validator's kwargs in the task line, such as `0` for the first; this leaves `prompt_md5` as it is.
 - **To fix a submission:** correct its row in the sheet, and run the import again if it wasn't written. Once it's on the branch, edit the line and update `prompt_md5` with `python src/make_task_ids.py`.
 - **To reject a submission:** add its id to [`data/tasks/rejected_ids.txt`](../data/tasks/rejected_ids.txt), which holds ids only, so it isn't imported again. If it's on the branch, remove its line and its asset folder too. Its id isn't reused.
-- **After the merge:** PRs are squash-merged, so `new-tasks` can't simply continue. The next run restarts it from main, but only if the working tree is clean and every task line, rejected id and asset on it is already in main. Otherwise it stays where it is, so a run never throws away unmerged tasks.
+- **After the merge:** PRs are squash-merged, so `new-tasks` can't simply continue. Delete the pushed branch, or your next push will be refused. The next run restarts it from main, but only if the working tree is clean and every task line, rejected id and asset on it is already in main. Otherwise it stays where it is, so a run never throws away unmerged tasks.

@@ -457,7 +457,7 @@ def _head_subject(repo):
     return _git(repo, "log", "-1", "--format=%s").strip()
 
 
-def test_a_good_submission_becomes_one_commit_with_one_line(repo):
+def test_a_valid_submission_becomes_one_commit_with_one_line(repo):
     imported, reports, warnings = import_rows([_row()], _fetch, repo)
 
     assert (imported, reports, warnings) == (["SFB-0052"], {}, {})
@@ -484,7 +484,7 @@ def test_no_personal_detail_reaches_the_commit(repo):
         assert detail not in commit
 
 
-def test_each_good_submission_gets_its_own_commit(repo):
+def test_each_valid_submission_gets_its_own_commit(repo):
     second = _row(**{"Task ID": "SFB-0053", "Task description": "What is 3 + 3?"})
 
     imported, _, _ = import_rows([_row(), second], _fetch, repo)
@@ -542,7 +542,7 @@ def test_a_row_the_script_missed_is_reported_by_its_sheet_row(repo):
         ({"Task description": "See data/tasks/assets/{TASK_ID}/data.csv"}, "no file was uploaded"),
     ],
 )
-def test_a_bad_submission_is_reported_and_nothing_is_written(repo, overrides, message):
+def test_an_invalid_submission_is_reported_and_nothing_is_written(repo, overrides, message):
     head = _git(repo, "rev-parse", "HEAD")
 
     imported, reports, _ = import_rows([_row(**overrides)], _fetch, repo)
@@ -686,6 +686,94 @@ def test_it_refuses_to_switch_over_untracked_task_files(repo):
         prepare_branch(repo, "new-tasks", "main")
 
 
+@pytest.fixture
+def team(repo, tmp_path_factory):
+    """Two maintainers' clones of a shared remote that only has `main`."""
+    root = tmp_path_factory.mktemp("team")
+    _git(root, "clone", "--quiet", "--bare", str(repo), "origin.git")
+    _git(root / "origin.git", "symbolic-ref", "HEAD", "refs/heads/main")
+    _git(root / "origin.git", "branch", "--quiet", "-D", "new-tasks")
+    for name in ("a", "b"):
+        _git(root, "clone", "--quiet", "origin.git", name)
+        _git(root / name, "config", "user.email", f"{name}@example.org")
+        _git(root / name, "config", "user.name", name)
+    return root / "a", root / "b"
+
+
+def _import_and_push(clone, *rows):
+    _git(clone, "fetch", "--quiet", "origin")
+    prepare_branch(clone, "new-tasks", "origin/main")
+    imported, _, _ = import_rows(list(rows), _fetch, clone)
+    _git(clone, "push", "--quiet", "origin", "new-tasks")
+    return imported
+
+
+SECOND_ROW = {"Task ID": "SFB-0053", "Task description": "What is 3 + 3?"}
+THIRD_ROW = {"Task ID": "SFB-0054", "Task description": "What is 4 + 4?"}
+
+
+def test_the_next_maintainer_continues_from_the_pushed_branch(team):
+    first, second = team
+    assert _import_and_push(first, _row()) == ["SFB-0052"]
+
+    assert _import_and_push(second, _row(), _row(**SECOND_ROW)) == ["SFB-0053"]
+
+    assert [task["task_id"] for task in read_tasks(second / TASK_FILE)] == ["SFB-0001", "SFB-0052", "SFB-0053"]
+    assert _git(second, "log", "-2", "--format=%s").split("\n")[:2] == ["Add task SFB-0053", "Add task SFB-0052"]
+
+
+def test_a_local_branch_behind_the_pushed_one_is_brought_up_to_date(team):
+    first, second = team
+    _import_and_push(first, _row())
+    _import_and_push(second, _row(), _row(**SECOND_ROW))
+
+    _git(first, "fetch", "--quiet", "origin")
+    prepare_branch(first, "new-tasks", "origin/main")
+
+    assert _git(first, "rev-parse", "HEAD") == _git(first, "rev-parse", "origin/new-tasks")
+
+
+def test_unpushed_local_commits_are_kept(team):
+    first, _ = team
+    _import_and_push(first, _row())
+    import_rows([_row(), _row(**SECOND_ROW)], _fetch, first)
+    head = _git(first, "rev-parse", "HEAD")
+
+    _git(first, "fetch", "--quiet", "origin")
+    prepare_branch(first, "new-tasks", "origin/main")
+
+    assert _git(first, "rev-parse", "HEAD") == head
+
+
+def test_it_stops_when_the_local_and_pushed_branches_have_both_changed(team):
+    first, second = team
+    _import_and_push(first, _row())
+    _import_and_push(second, _row(), _row(**SECOND_ROW))
+    import_rows([_row(), _row(**THIRD_ROW)], _fetch, first)
+    head = _git(first, "rev-parse", "HEAD")
+
+    _git(first, "fetch", "--quiet", "origin")
+    with pytest.raises(SystemExit, match="have both changed"):
+        prepare_branch(first, "new-tasks", "origin/main")
+
+    assert _git(first, "rev-parse", "HEAD") == head
+
+
+def test_a_pushed_branch_already_merged_is_not_continued(team):
+    first, second = team
+    _import_and_push(first, _row())
+    _git(first, "switch", "--quiet", "main")
+    _git(first, "merge", "--quiet", "--squash", "new-tasks")
+    _git(first, "commit", "--quiet", "-m", "Squashed")
+    _git(first, "push", "--quiet", "origin", "main")
+
+    _git(second, "fetch", "--quiet", "origin")
+    prepare_branch(second, "new-tasks", "origin/main")
+
+    assert _git(second, "rev-parse", "HEAD") == _git(second, "rev-parse", "origin/main")
+    assert import_rows([_row()], _fetch, second) == ([], {}, {})
+
+
 def test_new_task_lines_holds_only_what_main_lacks(repo):
     import_rows([_row()], _fetch, repo)
 
@@ -739,7 +827,7 @@ def test_a_dry_run_reports_and_touches_nothing(repo, tmp_path_factory, capsys):
     assert not (repo / ASSETS_DIR / "SFB-0052").exists()
 
 
-def test_a_bad_row_gives_a_failing_exit_and_a_report(repo, tmp_path_factory, capsys):
+def test_an_invalid_row_gives_a_failing_exit_and_a_report(repo, tmp_path_factory, capsys):
     outside = tmp_path_factory.mktemp("outside")
     _export(outside / "sheet.csv", [_row(**{"Check 1: correct answer": "about 2"})])
 

@@ -375,26 +375,46 @@ def _task_contents(repo: Path, ref: str) -> set[str]:
     return {*_lines_at(repo, ref, TASK_FILE), *_lines_at(repo, ref, REJECTED_FILE), *assets}
 
 
+def _exists(repo: Path, ref: str) -> bool:
+    return (
+        subprocess.run(["git", "rev-parse", "--verify", "--quiet", ref], cwd=repo, capture_output=True).returncode == 0
+    )
+
+
+def _holds_unmerged_work(repo: Path, ref: str, base: str) -> bool:
+    return not _task_contents(repo, ref) <= _task_contents(repo, base)
+
+
 def prepare_branch(repo: Path, branch: str, base: str) -> None:
     """
-    Switch to the import branch, restarting it from `base` only when all it holds is already there. PRs are
-    squash-merged, so commits can't tell; this compares the contents, and never moves a branch holding unmerged work.
+    Switch to the import branch, continuing from whatever isn't merged yet, so maintainers can import in turn.
+
+    A local branch holding unmerged work is kept and brought up to date with the pushed one; otherwise the pushed one
+    is continued. Only when neither holds anything unmerged does it restart from `base`. PRs are squash-merged, so
+    commits can't tell what is merged: this compares the contents, and never moves a branch holding unmerged work.
 
     Args:
         repo (Path): the repo
         branch (str): the import branch
-        base (str): the branch it starts from
+        base (str): the branch it starts from, such as `origin/main`; the pushed branch is looked for on its remote
     """
     tracked = _git(repo, "status", "--porcelain", "--untracked-files=no")
     if tracked or _git(repo, "status", "--porcelain", "--", "data/tasks"):
         raise SystemExit("Commit or set aside your changes first: the import switches branches.")
-    exists = subprocess.run(
-        ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=repo, capture_output=True
-    )
-    if exists.returncode == 0 and not _task_contents(repo, branch) <= _task_contents(repo, base):
+
+    shared = f"{base.split('/')[0]}/{branch}" if "/" in base else ""
+    shared_work = bool(shared) and _exists(repo, f"refs/remotes/{shared}") and _holds_unmerged_work(repo, shared, base)
+    if _exists(repo, f"refs/heads/{branch}") and _holds_unmerged_work(repo, branch, base):
         _git(repo, "switch", "--quiet", branch)
+        if shared_work:
+            try:
+                _git(repo, "merge", "--quiet", "--ff-only", shared)
+            except subprocess.CalledProcessError:
+                raise SystemExit(
+                    f"Your {branch} and {shared} have both changed. Nothing was imported: sort out which to keep first."
+                ) from None
     else:
-        _git(repo, "switch", "--quiet", "--no-track", "-C", branch, base)
+        _git(repo, "switch", "--quiet", "--no-track", "-C", branch, shared if shared_work else base)
 
 
 def _loader_problems(task: dict) -> list[str]:
@@ -433,7 +453,7 @@ def import_submission(
     row: dict[str, str], fetch, repo: Path, terms: list[str], parts: list[str], *, dry_run=False
 ) -> tuple[list[str], list[str]]:
     """
-    Check one submission and, if it is good, commit its task line and files.
+    Check one submission and, if it is valid, commit its task line and files.
 
     Args:
         row (dict[str, str]): the submission
