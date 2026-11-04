@@ -13,17 +13,16 @@ from core.tasks import TaskDef
 from utils.build_task import FAILURE_MODES, REPO_ROOT, VALIDATORS, read_tasks
 from utils.import_form import (
     ASSETS_DIR,
-    CHECK_BOXES,
-    MAX_CHECKS,
     MAX_SOURCES,
     MAX_TASK_BYTES,
+    MAX_VALIDATORS,
     REJECTED_FILE,
     SCOPES,
     SOURCE_BOXES,
     TASK_FILE,
     VALIDATOR_BOXES,
+    VALIDATOR_COLUMNS,
     check_files,
-    check_kwargs,
     clean_file_name,
     contains_personal_detail,
     drive_fetch,
@@ -40,6 +39,7 @@ from utils.import_form import (
     required_columns,
     row_to_task,
     staged_problems,
+    validator_kwargs,
 )
 
 SCRIPT = REPO_ROOT / "utils" / "form_script.gs"
@@ -61,14 +61,14 @@ OTHER_PERSON = {
 
 
 def _row(**overrides):
-    """A valid submission with one numeric check, with any column replaced."""
+    """A valid submission with one numeric validator, with any column replaced."""
     row = {
         **PERSON,
         "Task ID": "SFB-0052",
         "Task description": "What is 1 + 1?",
-        "Check 1: failure mode": "correctness",
-        "Check 1: validator": "content:numeric_match",
-        "Check 1: correct answer": "2",
+        "Validator 1: failure mode": "correctness",
+        "Validator 1: type": "content:numeric_match",
+        "Validator 1: correct answer": "2",
     }
     row.update(overrides)
     return row
@@ -104,14 +104,14 @@ def test_the_script_offers_what_the_harness_has():
 def test_the_script_asks_what_the_importer_reads():
     source = SCRIPT.read_text(encoding="utf-8")
 
-    for box in CHECK_BOXES:
-        assert f"`Check ${{n}}: {box}`" in source
+    for box in VALIDATOR_COLUMNS:
+        assert f"`Validator ${{n}}: {box}`" in source
     for box in SOURCE_BOXES:
         assert f"`Source ${{n}}: {box}`" in source
     for title in ("Full name", "Email", "Institution", "ORCID", "OpenReview", "Task description"):
         assert f'"{title}"' in source
     assert '"Task ID"' in source
-    assert f"const MAX_CHECKS = {MAX_CHECKS};" in source
+    assert f"const MAX_VALIDATORS = {MAX_VALIDATORS};" in source
     assert f"const MAX_SOURCES = {MAX_SOURCES};" in source
 
 
@@ -143,8 +143,8 @@ def test_parse_rows_fills_short_rows_by_title():
 
 
 def test_parse_rows_stops_on_a_renamed_question():
-    with pytest.raises(SystemExit, match="Check 1: rubric"):
-        parse_rows([[column for column in required_columns() if column != "Check 1: rubric"]])
+    with pytest.raises(SystemExit, match="Validator 1: rubric"):
+        parse_rows([[column for column in required_columns() if column != "Validator 1: rubric"]])
 
 
 def test_parse_rows_stops_on_an_empty_sheet():
@@ -152,7 +152,7 @@ def test_parse_rows_stops_on_an_empty_sheet():
         parse_rows([])
 
 
-# The answer boxes of a check.
+# The answer boxes of a validator.
 
 
 @pytest.mark.parametrize(
@@ -175,8 +175,8 @@ def test_parse_rows_stops_on_an_empty_sheet():
         ("format:json_output", ("", "", ""), {}),
     ],
 )
-def test_check_kwargs_builds_what_the_verifier_takes(validator, boxes, expected):
-    assert check_kwargs(validator, *boxes) == expected
+def test_validator_kwargs_builds_what_the_verifier_takes(validator, boxes, expected):
+    assert validator_kwargs(validator, *boxes) == expected
 
 
 @pytest.mark.parametrize(
@@ -200,9 +200,9 @@ def test_check_kwargs_builds_what_the_verifier_takes(validator, boxes, expected)
         ("format:json_output", ("1", "", ""), "does not use it"),
     ],
 )
-def test_check_kwargs_reports_wrong_boxes(validator, boxes, message):
+def test_validator_kwargs_reports_wrong_boxes(validator, boxes, message):
     with pytest.raises(ValueError, match=message):
-        check_kwargs(validator, *boxes)
+        validator_kwargs(validator, *boxes)
 
 
 # The task line.
@@ -219,34 +219,34 @@ def test_a_submission_becomes_a_task_the_harness_loads():
     TaskDef.model_validate(task)
 
 
-def test_quantitative_checks_come_first_whatever_the_order_on_the_form():
+def test_quantitative_validators_come_first_whatever_the_order_on_the_form():
     task, problems = row_to_task(
         _row(
             **{
-                "Check 1: failure mode": "sycophancy",
-                "Check 1: validator": "judge:rubric",
-                "Check 1: correct answer": "",
-                "Check 1: rubric": "Rejects the false claim.",
-                "Check 2: failure mode": "correctness",
-                "Check 2: validator": "content:numeric_match",
-                "Check 2: correct answer": "2",
+                "Validator 1: failure mode": "sycophancy",
+                "Validator 1: type": "judge:rubric",
+                "Validator 1: correct answer": "",
+                "Validator 1: rubric": "Rejects the false claim.",
+                "Validator 2: failure mode": "correctness",
+                "Validator 2: type": "content:numeric_match",
+                "Validator 2: correct answer": "2",
             }
         )
     )
 
     assert problems == []
     assert task["failure_modes"] == {"quantitative": ["correctness"], "qualitative": ["sycophancy"]}
-    assert [check["failure_mode"] for check in task["validators"]] == ["correctness", "sycophancy"]
+    assert [validator["failure_mode"] for validator in task["validators"]] == ["correctness", "sycophancy"]
     TaskDef.model_validate(task)
 
 
-def test_one_mode_with_two_checks_is_reported():
+def test_one_mode_with_two_validators_is_reported():
     _, problems = row_to_task(
         _row(
             **{
-                "Check 2: failure mode": "correctness",
-                "Check 2: validator": "content:numeric_match",
-                "Check 2: correct answer": "2",
+                "Validator 2: failure mode": "correctness",
+                "Validator 2: type": "content:numeric_match",
+                "Validator 2: correct answer": "2",
             }
         )
     )
@@ -254,10 +254,10 @@ def test_one_mode_with_two_checks_is_reported():
     assert any("several" in problem for problem in problems)
 
 
-def test_a_half_filled_check_is_reported():
-    _, problems = row_to_task(_row(**{"Check 2: rubric": "Something"}))
+def test_a_half_filled_validator_is_reported():
+    _, problems = row_to_task(_row(**{"Validator 2: rubric": "Something"}))
 
-    assert any(problem.startswith("check 2: choose both") for problem in problems)
+    assert any(problem.startswith("validator 2: choose both") for problem in problems)
 
 
 def test_personal_columns_stay_out_of_the_task():
@@ -534,7 +534,7 @@ def test_a_row_the_script_missed_is_reported_by_its_sheet_row(repo):
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"Check 1: correct answer": "about 2"}, "not a number"),
+        ({"Validator 1: correct answer": "about 2"}, "not a number"),
         ({"Task description": "Written by Jane Roe: what is 1 + 1?"}, "personal detail"),
         ({"Source 1: URL": "arxiv.org/abs/1"}, "must start with http"),
         ({"Task description": "What is 2 + 2?"}, "already in"),
@@ -829,7 +829,7 @@ def test_a_dry_run_reports_and_touches_nothing(repo, tmp_path_factory, capsys):
 
 def test_an_invalid_row_gives_a_failing_exit_and_a_report(repo, tmp_path_factory, capsys):
     outside = tmp_path_factory.mktemp("outside")
-    _export(outside / "sheet.csv", [_row(**{"Check 1: correct answer": "about 2"})])
+    _export(outside / "sheet.csv", [_row(**{"Validator 1: correct answer": "about 2"})])
 
     assert main(["--from-csv", str(outside / "sheet.csv"), "--base", "main"], repo=repo) == 1
 

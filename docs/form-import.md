@@ -81,7 +81,7 @@ A submission is reported and not written when:
 
 | What it checks | Reported when |
 |---|---|
-| Checks | A box the validator needs is empty, or one it doesn't use is filled in; a correct answer doesn't fit the validator; a failure mode has two checks |
+| Validators | A box the validator needs is empty, or one it doesn't use is filled in; a correct answer doesn't fit the validator; a failure mode has two validators |
 | The task | [`check_task`](../utils/build_task.py) or the harness's `TaskDef` loader refuses it, or its prompt is already in the task file |
 | Files | The type isn't `.csv`, `.dat`, `.json`, `.md`, `.py` or `.txt`; a file isn't UTF-8 text or can't be read; the name isn't in the prompt, or could leave the task's folder; the prompt names a file nobody uploaded; or the files come to over 20 MB |
 | Personal details | The name, email, ORCID or OpenReview handle of **anyone in the sheet**, or the uploader's Google account name, appears in the task line, a file name or a file's contents. Case, accents and spacing are ignored |
@@ -101,15 +101,15 @@ Fetch first: the import continues from the pushed `new-tasks`, so it only adds w
 
 ## Reviewing the new tasks
 
-The importer can't tell whether a check suits its prompt, so a person has to, before the PR. Use `--export new.jsonl`, run the new tasks on a model from the `new-tasks` branch, and go through each task:
+The importer can't tell whether a validator suits its prompt, so a person has to, before the PR. Use `--export new.jsonl`, run the new tasks on a model from the `new-tasks` branch, and go through each task:
 
 1. Does the prompt state one exact answer format?
-2. Did you read every failure? If the model's answer is right but a check failed, the check is wrong.
-3. If no run passed a check, did you confirm by hand that a right answer would pass? Otherwise nothing shows the check can pass at all.
+2. Did you read every failure? If the model's answer is right but a validator failed, the validator is wrong.
+3. If no run passed a validator, did you confirm by hand that a right answer would pass? Otherwise nothing shows the validator can pass at all.
 
 ## After the review
 
-- **If a check should read another number:** the form's numeric checks read the last number in the answer. For another one, add `index` to the validator's kwargs in the task line, such as `0` for the first; this leaves `prompt_md5` as it is.
+- **If a validator should read another number:** the form's numeric validators read the last number in the answer. For another one, add `index` to the validator's kwargs in the task line, such as `0` for the first; this leaves `prompt_md5` as it is.
 - **To fix a submission:** correct its row in the sheet, and run the import again if it wasn't written. Once it's on the branch, edit the line and update `prompt_md5` with `python src/make_task_ids.py`.
 - **To reject a submission:** add its id to [`data/tasks/rejected_ids.txt`](../data/tasks/rejected_ids.txt), which holds ids only, so it isn't imported again. If it's on the branch, remove its line and its asset folder too. Its id isn't reused.
 - **After the merge:** PRs are squash-merged, so `new-tasks` can't simply continue. Delete the pushed branch, or your next push will be refused. The next run restarts it from main, but only if the working tree is clean and every task line, rejected id and asset on it is already in main. Otherwise it stays where it is, so a run never throws away unmerged tasks.

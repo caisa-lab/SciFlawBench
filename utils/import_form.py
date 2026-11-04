@@ -37,11 +37,11 @@ ASSETS_DIR = "data/tasks/assets"
 REJECTED_FILE = "data/tasks/rejected_ids.txt"
 AGENT_ID = "code_agent"
 
-MAX_CHECKS = 4
+MAX_VALIDATORS = 4
 MAX_SOURCES = 3
 PERSONAL_COLUMNS = ("Full name", "Email", "Institution", "ORCID", "OpenReview")
 TASK_COLUMNS = ("Task ID", "Task description", "Files")
-CHECK_BOXES = ("failure mode", "validator", "correct answer", "tolerance", "rubric")
+VALIDATOR_COLUMNS = ("failure mode", "type", "correct answer", "tolerance", "rubric")
 SOURCE_BOXES = ("URL", "note")
 
 # Which answer boxes each validator reads. Tolerance is always optional.
@@ -83,9 +83,9 @@ CONFIG_DIR = Path.home() / ".config" / "sciflawbench"
 
 def required_columns() -> list[str]:
     """Every column the response sheet must have, so a renamed form question stops the import."""
-    checks = [f"Check {n}: {box}" for n in range(1, MAX_CHECKS + 1) for box in CHECK_BOXES]
+    validators = [f"Validator {n}: {box}" for n in range(1, MAX_VALIDATORS + 1) for box in VALIDATOR_COLUMNS]
     sources = [f"Source {n}: {box}" for n in range(1, MAX_SOURCES + 1) for box in SOURCE_BOXES]
-    return [*PERSONAL_COLUMNS, *TASK_COLUMNS, *checks, *sources]
+    return [*PERSONAL_COLUMNS, *TASK_COLUMNS, *validators, *sources]
 
 
 def parse_rows(values: list[list[str]]) -> list[dict[str, str]]:
@@ -120,9 +120,9 @@ def _number(text: str, what: str) -> float:
     return value
 
 
-def check_kwargs(validator: str, answer: str, tolerance: str, rubric: str) -> dict:
+def validator_kwargs(validator: str, answer: str, tolerance: str, rubric: str) -> dict:
     """
-    Build a validator's kwargs from the answer boxes of one check.
+    Build a validator's kwargs from its answer boxes on the form.
 
     Args:
         validator (str): the verifier name
@@ -189,32 +189,32 @@ def row_to_task(row: dict[str, str]) -> tuple[dict, list[str]]:
     Args:
         row (dict[str, str]): the submission
 
-    Returns (tuple[dict, list[str]]): the task, and the problems found in its checks
+    Returns (tuple[dict, list[str]]): the task, and the problems found in its validators
     """
     problems = []
-    checks = []
-    for n in range(1, MAX_CHECKS + 1):
-        mode, validator, answer, tolerance, rubric = (_box(row, f"Check {n}: {box}") for box in CHECK_BOXES)
+    validators = []
+    for n in range(1, MAX_VALIDATORS + 1):
+        mode, validator, answer, tolerance, rubric = (_box(row, f"Validator {n}: {box}") for box in VALIDATOR_COLUMNS)
         if not (mode or validator or answer or tolerance or rubric):
             continue
         if not (mode and validator):
-            problems.append(f"check {n}: choose both a failure mode and a validator")
+            problems.append(f"validator {n}: choose both a failure mode and a type")
             continue
         try:
-            checks.append(
+            validators.append(
                 {
                     "name": validator,
-                    "kwargs": check_kwargs(validator, answer, tolerance, rubric),
+                    "kwargs": validator_kwargs(validator, answer, tolerance, rubric),
                     "failure_mode": mode,
                 }
             )
         except ValueError as error:
-            problems.append(f"check {n}: {error}")
+            problems.append(f"validator {n}: {error}")
 
-    modes = [check["failure_mode"] for check in checks]
+    modes = [validator["failure_mode"] for validator in validators]
     repeated = sorted({mode for mode in modes if modes.count(mode) > 1})
     if repeated:
-        problems.append(f"each failure mode gets one check, but these have several: {repeated}")
+        problems.append(f"each failure mode gets one validator, but these have several: {repeated}")
 
     sources = [
         {"url": _box(row, f"Source {n}: URL"), "note": _box(row, f"Source {n}: note")}
@@ -227,7 +227,7 @@ def row_to_task(row: dict[str, str]) -> tuple[dict, list[str]]:
         [mode for mode in modes if mode in QUANTITATIVE_FAILURE_MODES],
         [mode for mode in modes if mode not in QUANTITATIVE_FAILURE_MODES],
         ["read_file"] if _box(row, "Files") else [],
-        sorted(checks, key=lambda check: check["failure_mode"] not in QUANTITATIVE_FAILURE_MODES),
+        sorted(validators, key=lambda validator: validator["failure_mode"] not in QUANTITATIVE_FAILURE_MODES),
         sources,
         task_id=_box(row, "Task ID"),
     )
@@ -461,7 +461,7 @@ def import_submission(
         repo (Path): the repo, on the import branch
         terms (list[str]): the details of everyone in the sheet, which stop a task
         parts (list[str]): single words of their names, which only raise a warning
-        dry_run (bool): whether to stop after the checks
+        dry_run (bool): whether to stop before writing anything
 
     Returns (tuple[list[str], list[str]]): the problems, when nothing was written, and the warnings
     """
