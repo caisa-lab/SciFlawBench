@@ -1,0 +1,49 @@
+name: task stats
+
+# Runs after a merge that changes the task set. Only `push` to main can start it, so a pull request's own
+# code never runs here. Commits made with the built-in token don't start other workflows, so it can't loop.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "data/tasks/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: task-stats
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Write the statistics into the README
+        run: |
+          pip install pydantic
+          PYTHONPATH=src python -m utils.task_stats
+
+      - name: Commit if the numbers changed
+        run: |
+          if git diff --quiet -- README.md; then
+            echo "The numbers did not change."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "Update the task stats in the README"
+          git pull --rebase origin main
+          git push origin HEAD:main
