@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 from evaluation.base import run_check
 from evaluation.definitions import verifier_registry
 
@@ -127,3 +131,85 @@ def test_unicode_minus_is_a_negative_sign():
     # an en dash marks a range, not a sign: the upper end must stay positive
     result = run_check(numeric, "2.8\u20134.2", expected="4.2", tol=0.001, index=1)
     assert result.passed
+
+
+@pytest.mark.parametrize(
+    ("got", "tol", "passed"),
+    [
+        pytest.param('{"mass": 12.3, "spin": 0.7}', 0.0, True, id="exact"),
+        pytest.param('{"mass": 12.31, "spin": 0.7}', 0.0, False, id="no tolerance by default"),
+        pytest.param('{"mass": 12.34, "spin": 0.7}', 0.05, True, id="within the tolerance"),
+        pytest.param('{"mass": 12.36, "spin": 0.7}', 0.05, False, id="outside the tolerance"),
+        pytest.param('{"mass": 12.3, "spin": 0.9}', 0.05, False, id="every field is graded"),
+        pytest.param('{"mass": "12.3", "spin": 0.7}', 0.05, False, id="a number written as text"),
+        pytest.param('{"mass": 12.3, "spin": 0.7, "justification": "x"}', 0.05, True, id="extra field"),
+    ],
+)
+def test_json_output_grades_numbers_within_its_tolerance(got, tol, passed):
+    verifier = verifier_registry.get("content:json_output")
+
+    assert run_check(verifier, got, expected={"mass": 12.3, "spin": 0.7}, tol=tol).passed is passed
+
+
+@pytest.mark.parametrize(
+    ("expected", "got", "tol", "passed"),
+    [
+        pytest.param({"a": [1.0, 2.0]}, '{"a": [1.04, 1.96]}', 0.05, True, id="inside a list"),
+        pytest.param({"a": [1.0, 2.0]}, '{"a": [1.0]}', 0.05, False, id="a shorter list"),
+        pytest.param({"a": {"b": 1.0}}, '{"a": {"b": 1.04}}', 0.05, True, id="inside an object"),
+        pytest.param(
+            {"a": {"b": 1.0}}, '{"a": {"b": 1.0, "c": 2}}', 0.05, False, id="a nested object is compared whole"
+        ),
+        pytest.param({"a": "x"}, '{"a": "x"}', 0.05, True, id="text stays exact"),
+        pytest.param({"a": "x"}, '{"a": "y"}', 0.05, False, id="other text"),
+        pytest.param({"a": True}, '{"a": false}', 1.0, False, id="a boolean is not a number"),
+    ],
+)
+def test_json_output_tolerance_reaches_inside_lists_and_objects(expected, got, tol, passed):
+    verifier = verifier_registry.get("content:json_output")
+
+    assert run_check(verifier, got, expected=expected, tol=tol).passed is passed
+
+
+@pytest.mark.parametrize(
+    "expected",
+    [{"a": 1}, {"a": 1.0}, {"a": True}, {"a": None}, {"a": [1, "x", {"b": 2}]}, {"a": {"b": [1.5]}}],
+)
+def test_json_output_without_a_tolerance_matches_plain_equality(expected):
+    verifier = verifier_registry.get("content:json_output")
+
+    for got in ({"a": 1}, {"a": 1.0}, {"a": True}, {"a": None}, {"a": [1, "x", {"b": 2}]}, {"a": {"b": [1.5]}}):
+        assert run_check(verifier, json.dumps(got), expected=expected).passed is (got["a"] == expected["a"])
+
+
+@pytest.mark.parametrize(
+    "got",
+    ['```json\n{"a": 1}\n```', '```\n{"a": 1}\n```', '  ```JSON\n{"a": 1}\n```\n'],
+)
+def test_json_output_accepts_one_surrounding_code_block(got):
+    assert run_check(verifier_registry.get("content:json_output"), got, expected={"a": 1}).passed
+
+
+@pytest.mark.parametrize(
+    "got",
+    [
+        'Here it is: {"a": 1}',
+        'Here it is:\n```json\n{"a": 1}\n```',
+        '```json\n{"a": 1}\n```\nThat is all.',
+        '```json\n{"a": 1}\n```\n```json\n{"a": 1}\n```',
+    ],
+)
+def test_json_output_still_refuses_text_around_the_json(got):
+    assert not run_check(verifier_registry.get("content:json_output"), got, expected={"a": 1}).passed
+
+
+def test_a_format_check_still_wants_bare_json():
+    assert not run_check(verifier_registry.get("format:json_output"), '```json\n{"a": 1}\n```').passed
+
+
+def test_paper_json_match_accepts_one_surrounding_code_block():
+    got = '```json\n{"papers": [{"arxiv_id": "2602.02275"}]}\n```'
+
+    assert run_check(
+        verifier_registry.get("content:paper_json_match"), got, expected=[{"arxiv_id": "2602.02275"}]
+    ).passed
