@@ -118,13 +118,13 @@ class TaskDef(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def verify_checks_can_run(self):
-        """A check whose kwargs its verifier can't take would error on every run, so the task could never pass it."""
+    def verify_validators_can_run(self):
+        """A validator with kwargs its verifier can't take errors on every run, so the task could never pass it."""
         for validator in self.validators:
             if validator.name in verifier_registry.names():
                 problem = kwargs_problem(verifier_registry.get(validator.name), validator.kwargs)
                 if problem:
-                    raise ValueError(f"check {validator.name!r} can't run with its kwargs: {problem}")
+                    raise ValueError(f"validator {validator.name!r} can't run with its kwargs: {problem}")
         return self
 
 

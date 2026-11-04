@@ -55,11 +55,11 @@ def wants_context(f: Callable) -> bool:
 
 def kwargs_problem(f: Callable, kwargs: dict) -> str | None:
     """
-    Why a verifier can't be called with a check's kwargs. Such a check errors on every run, so it could never pass.
+    Why a verifier can't be called with a validator's kwargs. Such a validator errors on every run and can't pass.
 
     Args:
         f (Callable): the verifier function
-        kwargs (dict): the check's configured kwargs
+        kwargs (dict): the validator's configured kwargs
 
     Returns (str | None): the reason, or None when the call would work
     """

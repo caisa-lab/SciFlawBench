@@ -46,7 +46,7 @@ def test_kwargs_a_verifier_takes_load(name, kwargs):
         pytest.param("content:numeric_match", {"got": "1", "expected": "1"}, "got", id="got is not a kwarg"),
     ],
 )
-def test_a_check_that_could_never_run_is_refused_at_load(name, kwargs, reason):
+def test_a_validator_that_could_never_run_is_refused_at_load(name, kwargs, reason):
     with pytest.raises(ValidationError, match=reason):
         _task(name, kwargs)
 
@@ -56,7 +56,7 @@ def test_a_verifier_taking_anything_accepts_anything():
 
 
 @pytest.mark.parametrize("task_file", ["data/tasks/v0/tasks.jsonl", "data/example/tasks.jsonl"])
-def test_every_check_in_the_task_files_can_run(task_file):
+def test_every_validator_in_the_task_files_can_run(task_file):
     tasks = [
         json.loads(line) for line in (REPO_ROOT / task_file).read_text(encoding="utf-8").splitlines() if line.strip()
     ]
