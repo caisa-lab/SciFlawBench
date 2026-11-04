@@ -49,12 +49,11 @@ No AI/ML experience is required — you only need to be an expert in your domain
 
 ## 4. How To Submit
 
-Submissions are collected through Google Forms, which define the fields you fill in (your identity, the domain, the task text, its ground truth, the tools it needs and the failure-mode flags it probes).
+Submissions are collected through one Google Form, which defines the fields you fill in: your details, which stay private and are never published with a task, the task text, up to four validators with their failure modes and correct answers, your sources, and any files. It needs a Google account if you upload files.
 
-1. **Register as an annotator** — <https://docs.google.com/forms/d/159NWfHjjZRg4pP5HzAyBStZldaby0kF1AMuI3y1mPIY>
-2. **Submit your items** — <https://docs.google.com/forms/d/e/1FAIpQLSdZKM8HSoGEXnV9oTWezMQhHekC2rcyH8r6VqzFjZ_DdsYAPg/closedform>
+**Submit your items** — <FORM_LINK>
 
-Register first, then submit single items or a curated batch; a batch should come with a dataset description (see [section 9](#9-review-dataset-description-and-ai-disclosure)). Questions, tool requests and proposals for new failure modes belong in the issue tracker.
+Submit single items or a curated batch; a batch should come with a dataset description (see [section 9](#9-review-dataset-description-and-ai-disclosure)). Questions, tool requests and proposals for new failure modes belong in the issue tracker.
 
 ## 5. From submission to harness task
 
