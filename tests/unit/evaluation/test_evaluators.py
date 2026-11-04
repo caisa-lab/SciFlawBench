@@ -203,7 +203,7 @@ def test_json_output_still_refuses_text_around_the_json(got):
     assert not run_check(verifier_registry.get("content:json_output"), got, expected={"a": 1}).passed
 
 
-def test_a_format_check_still_wants_bare_json():
+def test_a_format_validator_still_wants_bare_json():
     assert not run_check(verifier_registry.get("format:json_output"), '```json\n{"a": 1}\n```').passed
 
 

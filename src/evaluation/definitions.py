@@ -12,7 +12,7 @@ _CODE_BLOCK_RE = re.compile(r"\s*```[A-Za-z]*\s*\n(.*?)\n?\s*```\s*", re.DOTALL)
 
 
 def _without_code_block(text: str) -> str:
-    """Models often wrap JSON in one code block; a right answer shouldn't fail its content check on that."""
+    """Models often wrap JSON in one code block; a right answer shouldn't fail its content validator on that."""
     match = _CODE_BLOCK_RE.fullmatch(text)
     return match.group(1) if match else text
 
