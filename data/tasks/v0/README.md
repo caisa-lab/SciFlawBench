@@ -2,7 +2,7 @@
 
 Version 0 of the official SciFlawBench task set.
 
-This folder is currently a placeholder for the v0 task file(s). A task file is newline-delimited JSON (`.jsonl`) with one task object per line; see `../../example/README.md` for the field reference.
+This folder holds the v0 task file, `tasks.jsonl`. A task file is newline-delimited JSON (`.jsonl`) with one task object per line; see `../../example/README.md` for the field reference.
 
 To run the v0 version of SciFlawBench, point `task_file` in `config.json` at it:
 
