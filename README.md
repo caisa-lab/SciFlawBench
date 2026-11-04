@@ -94,7 +94,8 @@ Start from [`examples/config.json`](examples/config.json), and see [`examples/RE
 
 ```
 utils/
-└── build_task.ipynb   # fill in one submitted item and append it to a task file as a JSONL line
+├── build_task.ipynb   # fill in one submitted item and append it to a task file as a JSONL line
+└── build_task.py      # the functions behind the notebook: build a task line, check it, append it
 ```
 
 [`utils/build_task.ipynb`](utils/build_task.ipynb) turns one submitted item into a task line: fill in the fields and it validates the item, computes the `task_id`, and appends it to a task file. See [`docs/task-authoring.md`](docs/task-authoring.md#5-from-submission-to-harness-task).
