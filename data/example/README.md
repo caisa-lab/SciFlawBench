@@ -48,6 +48,8 @@ Each entry of `validators` is a `{"name": ..., "kwargs": {...}, "failure_mode": 
 
 Every verifier receives the agent's final answer as its first argument and returns a pass/fail plus a human-readable detail string; a verifier that raises counts as failed. The results are stored as `check_results` in the task's result record and summarised as `Checks: passed/total` in `run_summary.log`. A task's **score** is the fraction of its checks that pass (`1.0` when every check passes) and goes into the overall score; each failure mode is scored from its own check, and those per-mode scores are averaged into `scores.json` (see [Failure modes](#failure-modes)).
 
+A check whose `kwargs` its verifier can't take, such as a misspelt or missing one, is refused when the task loads, since it could never pass.
+
 | Verifier | `kwargs` | What it checks |
 | -------- | -------- | -------------- |
 | `format:json_output` | – | The answer parses as JSON |

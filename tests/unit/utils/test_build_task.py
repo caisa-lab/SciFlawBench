@@ -120,6 +120,8 @@ def test_a_built_task_loads_in_the_harness(task_id):
             "each failure mode needs exactly one check",
         ),
         ({"validators": [{**CHECK, "name": "content:nope"}]}, "unknown verifier 'content:nope'"),
+        ({"validators": [{**CHECK, "kwargs": {"expected": "1", "tolerance": 0.1}}]}, "can't run with its kwargs"),
+        ({"validators": [{**CHECK, "kwargs": {}}]}, "can't run with its kwargs"),
         ({"sources": "https://arxiv.org"}, "sources must be a list"),
         ({"sources": ["https://arxiv.org"]}, "must be an object"),
         ({"sources": [{"url": "arxiv.org", "note": ""}]}, "must start with http"),

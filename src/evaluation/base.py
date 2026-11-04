@@ -53,6 +53,24 @@ def wants_context(f: Callable) -> bool:
         return False
 
 
+def kwargs_problem(f: Callable, kwargs: dict) -> str | None:
+    """
+    Why a verifier can't be called with a check's kwargs. Such a check errors on every run, so it could never pass.
+
+    Args:
+        f (Callable): the verifier function
+        kwargs (dict): the check's configured kwargs
+
+    Returns (str | None): the reason, or None when the call would work
+    """
+    context = {"context": None} if wants_context(f) else {}
+    try:
+        inspect.signature(f).bind("", **context, **kwargs)
+    except TypeError as error:
+        return str(error)
+    return None
+
+
 def run_check(f: Callable, got: Any, context: VerifierContext | None = None, **kwargs) -> VerificationResult:
     """
     Run one verifier against an agent's output, never raising.
