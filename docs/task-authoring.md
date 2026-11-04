@@ -59,7 +59,7 @@ Register first, then submit single items or a curated batch; a batch should come
 ## 5. From submission to harness task
 
 Accepted items are converted into harness tasks. [`../utils/build_task.ipynb`](../utils/build_task.ipynb) turns one submission row into a task line,
-checks it against these rules, and appends it to a task file.
+checks it against these rules, and appends it to a task file. [`../utils/import_form.py`](../utils/import_form.py) does this for submissions to the Google Form; see [`form-import.md`](form-import.md).
 
 A finished task looks like this:
 
@@ -94,6 +94,7 @@ Local data files for an item live in `data/tasks/assets/<task_id>/` and are addr
 ## 7. Answers: format, tolerance and rubrics
 
 * Keep answers short and machine-checkable: a value with tolerance, a canonical name, or a yes/no plus a justification rubric.
+* If a check reads the answer automatically, say in the prompt exactly how the agent must write its final answer, with no text, units or code block around it: only the value for a single value, or a JSON object such as `{"mass": 12.3, "spin": 0.7}` for several. A numeric check grades one number, so a list of numbers would leave the others ungraded. A JSON check grades every field exactly, with no tolerance, so state the rounding; any explanation goes in a field such as `justification`.
 * Use standard terminology and nomenclature (IUPAC names, standard gene symbols, SI units).
 * For numerical answers state units, tolerance (e.g. ±5%) and significant figures.
 * For open-ended deliverables (plans, protocols, figures, reports) give an explicit **checklist rubric** — a list of required elements — instead of a single string, so two reviewers grade it the same way.

@@ -11,7 +11,8 @@ data/
 ├── example/     # Self-contained example task file for demos, smoke tests and quick local runs
 └── tasks/       # The official SciFlawBench sample tasks, versioned over time
     ├── v0/      # Version 0 of the official task set
-    └── assets/  # One folder per task id, holding that task's local files
+    ├── assets/  # One folder per task id, holding that task's local files
+    └── rejected_ids.txt  # Ids reviewed and not kept, so the form import skips them
 ```
 
 ### `example/`
@@ -21,6 +22,10 @@ A small, illustrative task file (`tasks.jsonl`) that mirrors the official task f
 ### `tasks/`
 
 Holds the samples that make up the **official SciFlawBench**, split into one subfolder per benchmark version (`v0`, `v1`, ...).
+
+### `tasks/rejected_ids.txt`
+
+The ids of form submissions that were reviewed and not kept, one per line. It holds ids only. See [`../docs/form-import.md`](../docs/form-import.md).
 
 ### `tasks/assets/`
 
