@@ -53,7 +53,7 @@ A validator whose `kwargs` its verifier can't take, such as a misspelt or missin
 | Verifier | `kwargs` | What it checks |
 | -------- | -------- | -------------- |
 | `format:json_output` | – | The answer parses as JSON |
-| `content:json_output` | `expected` (object) | The answer parses as JSON and every field of `expected` is present with exactly that value |
+| `content:json_output` | `expected` (object), `tol` (`0.0`) | The answer parses as JSON, alone or in one surrounding code block, and every field of `expected` is present with that value; numbers anywhere inside may differ by `tol` |
 | `content:contains_str` | `expected` (string), `case_sensitive` (`false`) | `expected` occurs somewhere in the answer |
 | `content:exact_str_match` | `expected` (string), `case_sensitive` (`false`) | The answer equals `expected` once whitespace is stripped |
 | `content:numeric_match` | `expected` (string), `tol` (`0.0`), `index` (`-1`) | The `index`-th number found in the answer is within `tol` of `expected` |
