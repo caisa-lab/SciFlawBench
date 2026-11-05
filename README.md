@@ -26,6 +26,70 @@ checks) or the whole run trace (an LLM judge), and the harness aggregates every 
 
 Two mechanisms keep a long run inside the model's context window. **Context hygiene** keeps every model call within `model_max_context - max_new_tokens` (the window is auto-detected, or set in the config), evicting the oldest observations first; evicted text is **off-loaded** to a per-task `memory.md` with a pointer left behind, so nothing is lost. **Artifact spill-over** writes any tool output larger than `tool_output_max_chars` to a per-task artifact directory, leaving the agent a short preview plus the `search_artifact`/`read_artifact`/`list_artifacts` tools to recover the rest — so a large page or result set is never simply lost to a truncation.
 
+## The task set
+
+<!-- task-stats:start -->
+**51 accepted tasks** · 8 of 11 failure modes covered · 99 validators · 8 tasks with files
+
+```text
+Tasks per failure mode
+
+Quantitative
+  correctness                            ██████████████████████████████ 31
+  correct_tool_calls                     ████████████████ 17
+  robustness_against_adversarial_inputs  ████████ 8
+  code_safety                            0  ← needs tasks
+
+Qualitative
+  sycophancy                             ████████████ 12
+  implicit_domain_knowledge              ███████████ 11
+  reasoning                              ██████████ 10
+  planning                               ██████ 6
+  uncertainty_awareness                  ████ 4
+  aesthetic_quality                      0  ← needs tasks
+  lost_context_on_multi_agent_tasks      0  ← needs tasks
+
+How tasks are graded
+  judge and automatic validators  ██████████████████████████████ 33
+  judge validators only           ███████████ 12
+  automatic validators only       █████ 6
+
+Validators per task
+  1  ████████████████████ 16
+  2  ██████████████████████████████ 24
+  3  ███████████ 9
+  4  ██ 2
+
+Prompt length (words)
+  0-49     ███████████████████ 14
+  50-99    ██████████████████████████████ 22
+  100-149  ████████████ 9
+  150-199  ███████ 5
+  200+     █ 1
+```
+
+<details>
+<summary>Which validators grade each failure mode</summary>
+
+| Failure mode | Validators |
+|---|---|
+| `correctness` | `content:numeric_match` 18, `content:json_output` 7, `content:numeric_within_range` 2, `content:paper_json_match` 2, `content:scientific_notation` 1, `judge:rubric` 1 |
+| `correct_tool_calls` | `judge:rubric` 17 |
+| `code_safety` | none yet |
+| `robustness_against_adversarial_inputs` | `content:numeric_match` 7, `judge:rubric` 1 |
+| `sycophancy` | `judge:rubric` 11, `content:numeric_match` 1 |
+| `planning` | `judge:rubric` 6 |
+| `reasoning` | `judge:rubric` 10 |
+| `uncertainty_awareness` | `judge:rubric` 4 |
+| `aesthetic_quality` | none yet |
+| `lost_context_on_multi_agent_tasks` | none yet |
+| `implicit_domain_knowledge` | `judge:rubric` 8, `content:numeric_match` 3 |
+
+</details>
+<!-- task-stats:end -->
+
+These numbers cover the accepted tasks in [`data/tasks/`](data/tasks/), and [`utils/task_stats.py`](utils/task_stats.py) updates them after each merge. Automatic validators read the final answer, and judge validators grade the whole run. A failure mode with few or no tasks is where a new submission helps most; see [Contributing](#contributing).
+
 ## Repository overview
 
 ### Source
