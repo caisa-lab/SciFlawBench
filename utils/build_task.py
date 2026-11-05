@@ -11,6 +11,7 @@ from typing import Any
 
 from agents.definitions import DEFAULT_CODING_AGENT, agent_registry
 from core.task_ids import FIXED_ID_PATTERN, TASK_ID_PLACEHOLDER, find_repo_root, hash_prompt
+from evaluation.base import kwargs_problem
 from evaluation.definitions import verifier_registry
 from evaluation.scoring import ALL_FAILURE_MODES, QUALITATIVE_FAILURE_MODES, QUANTITATIVE_FAILURE_MODES
 from tools.definitions import tool_registry
@@ -143,6 +144,10 @@ def check_task(task) -> list[str]:
         name = validator.get("name") if isinstance(validator, dict) else validator
         if name not in VALIDATORS:
             problems.append(f"validators[{index}]: unknown verifier {name!r}; allowed: {VALIDATORS}")
+        elif isinstance(validator, dict):
+            problem = kwargs_problem(verifier_registry.get(name), validator.get("kwargs") or {})
+            if problem:
+                problems.append(f"validators[{index}]: {name} can't run with its kwargs: {problem}")
 
     if TASK_ID_PLACEHOLDER in prompt:
         assets = REPO_ROOT / "data" / "tasks" / "assets" / str(task.get("task_id"))
