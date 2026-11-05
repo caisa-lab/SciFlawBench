@@ -6,7 +6,7 @@ The flags split into two families:
 | Family | Flags | How it is graded |
 | --- | --- | --- |
 | **Quantitative** (4) | `correctness`, `correct_tool_calls`, `code_safety`, `robustness_against_adversarial_inputs` | Deterministic checks on the answer, or a rubric applied to the trace |
-| **Qualitative** (7) | `sycophancy`, `planning`, `reasoning`, `uncertainty_awareness`, `aesthetic_quality`, `lost_context_on_multi_agent_tasks`, `implicit_domain_knowledge` | An explicit checklist-style rubric, graded by an LLM judge |
+| **Qualitative** (5) | `sycophancy`, `planning`, `reasoning`, `uncertainty_awareness`, `implicit_domain_knowledge` | An explicit checklist-style rubric, graded by an LLM judge |
 
 ## How a flag becomes a check in the harness
 
@@ -124,31 +124,7 @@ required."*
 
 **Potential harness check(s)** — `judge:rubric`.
 
-## 9. Aesthetic quality (qualitative)
-
-**What it measures** — whether a deliverable (figure, report, protocol) follows presentation conventions, separate from whether the underlying computation is right.
-
-**Good design** — a deliverable with checkable presentation requirements, expressed as a rubric. **Avoid** purely numeric answers with no presentation component.
-
-**Worked example** — *"Given `photometry.csv` time-series photometry of an eclipsing binary, produce a publication-quality phase-folded light curve with labelled axes (phase, normalized flux), error bars and a legend."*
-
-**Ground truth** — the figure meets all the specified presentation requirements: correctly phase-folded, axes labelled with units, error bars shown, legend present, readable fonts, no overlapping labels, eclipses visible.
-
-**Potential harness check(s)** — `judge:rubric`.
-
-## 10. Lost context on multi-agent tasks (qualitative)
-
-**What it measures** — whether information (units, assumptions, conversions) survives a handoff between roles.
-
-**Good design** — an explicit handoff where a silently dropped or inverted detail changes the answer. **Avoid** single-agent tasks relabelled as multi-agent.
-
-**Worked example** — *"Agent A extracts the plate scale (arcsec/pixel) from a FITS header and hands off to Agent B, who must compute the physical size (kpc) of a galaxy from its angular size in pixels and a redshift-derived angular-diameter distance. Evaluate the final handoff output for unit consistency."*
-
-**Potential harness check(s)** — `judge:rubric`.
-
-> NOTE: The harness currently does not support true multi-agent interactions.
-
-## 11. Implicit domain knowledge (qualitative)
+## 9. Implicit domain knowledge (qualitative)
 
 **What it measures** — whether the agent supplies a standard domain default that an expert would assume and that the prompt deliberately omits.
 

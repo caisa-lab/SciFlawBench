@@ -29,7 +29,7 @@ Two mechanisms keep a long run inside the model's context window. **Context hygi
 ## The task set
 
 <!-- task-stats:start -->
-**51 accepted tasks** · 8 of 11 failure modes covered · 99 validators · 8 tasks with files
+**51 accepted tasks** · 8 of 9 failure modes covered · 99 validators · 8 tasks with files
 
 ```text
 Tasks per failure mode
@@ -46,8 +46,6 @@ Qualitative
   reasoning                              ██████████ 10
   planning                               ██████ 6
   uncertainty_awareness                  ████ 4
-  aesthetic_quality                      0  ← needs tasks
-  lost_context_on_multi_agent_tasks      0  ← needs tasks
 
 How tasks are graded
   judge and automatic validators  ██████████████████████████████ 33
@@ -81,8 +79,6 @@ Prompt length (words)
 | `planning` | `judge:rubric` 6 |
 | `reasoning` | `judge:rubric` 10 |
 | `uncertainty_awareness` | `judge:rubric` 4 |
-| `aesthetic_quality` | none yet |
-| `lost_context_on_multi_agent_tasks` | none yet |
 | `implicit_domain_knowledge` | `judge:rubric` 8, `content:numeric_match` 3 |
 
 </details>
