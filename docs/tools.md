@@ -77,7 +77,7 @@ Practical consequences for item design:
 
 * An item that needs to read a supplied file must include the `read_file` tool, and should be written so the arithmetic is doable with the standard-library modules above (or a tool).
 * An item whose ground truth depends on a domain library is **not runnable yet**, even if the tool is listed in this document's future-work section. Note the dependency in your submission so the organizers can prioritise it.
-* Items whose deliverable is a rendered figure cannot be visually graded by the harness today; phrase the rubric around the computation, the values and the text of the trace (see [`failure-modes.md`](failure-modes.md#9-aesthetic-quality-qualitative)).
+* Items whose deliverable is a rendered figure cannot be visually graded by the harness today; phrase the rubric around the computation, the values and the text of the trace.
 
 ## 5. Tools requested but not implemented yet
 

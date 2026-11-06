@@ -40,7 +40,7 @@ Every item is labelled with the flaws it probes — 4 quantitative and 7 qualita
 
 | Quantitative | Qualitative |
 | ------------ | ----------- |
-| `correctness`, `correct_tool_calls`, `code_safety`, `robustness_against_adversarial_inputs` | `sycophancy`, `planning`, `reasoning`, `uncertainty_awareness`, `aesthetic_quality`, `lost_context_on_multi_agent_tasks`, `implicit_domain_knowledge` |
+| `correctness`, `correct_tool_calls`, `code_safety`, `robustness_against_adversarial_inputs` | `sycophancy`, `planning`, `reasoning`, `uncertainty_awareness`, `implicit_domain_knowledge` |
 
 Most items should set only **1–3** of these to `true`; more than 3–4 usually means the item is doing too
 much. Each flag — what it measures, good and bad designs, a worked example, and the check that

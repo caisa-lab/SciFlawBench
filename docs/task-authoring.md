@@ -87,7 +87,7 @@ Local data files for an item live in `data/tasks/assets/<task_id>/` and are addr
 * **Self-contained.** Include any tables, sequences or file contents inline or as an attachment that a sandboxed agent could fetch. The agent cannot browse your filesystem.
 * **Machine-checkable ground truth** where possible: an exact string, a numeric value with tolerance, or a short rubric of required elements.
 * **Canonical tool names only** — from [`tools.md`](tools.md). Do not invent names.
-* **All 11 failure-mode booleans present**, unused ones `false`.
+* **All 9 failure-mode booleans present**, unused ones `false`.
 * **No shortcuts.** Reject designs an agent could pass by dumping every possible answer, doing nothing, or exploiting a pattern in the ground truth.
 * **Pinned versions** for anything whose behaviour is version-dependent (state the version in `notes`).
 
@@ -145,7 +145,7 @@ Before submitting, verify **all** of the following:
 
 ## 11. FAQ
 
-**Do all 11 failure-mode flags need to be considered?**
+**Do all 9 failure-mode flags need to be considered?**
 
 - Yes — all must be present, but most items should set only 1–3 to `true`. More than 3–4 usually means the item is doing too much; split it.
 
