@@ -155,10 +155,14 @@ Start from [`examples/config.json`](examples/config.json), and see [`examples/RE
 ```
 utils/
 ├── build_task.ipynb   # fill in one submitted item and append it to a task file as a JSONL line
-└── build_task.py      # the functions behind the notebook: build a task line, check it, append it
+├── build_task.py      # the functions behind the notebook: build a task line, check it, append it
+├── form_script.gs     # the Google side of the form: creates it and handles each submission
+└── import_form.py     # turn form submissions into task lines on a local branch
 ```
 
 [`utils/build_task.ipynb`](utils/build_task.ipynb) turns one submitted item into a task line: fill in the fields and it validates the item, computes the `task_id`, and appends it to a task file. See [`docs/task-authoring.md`](docs/task-authoring.md#5-from-submission-to-harness-task).
+
+[`utils/import_form.py`](utils/import_form.py) does the same for submissions to the Google Form, adding one commit per task to a local branch for a maintainer to review. See [`docs/form-import.md`](docs/form-import.md).
 
 ## Requirements
 
@@ -293,7 +297,7 @@ The project grows along two tracks:
 | **1. Benchmark items** — scientific tasks with a ground truth and failure-mode labels | Practising scientists | [`CONTRIBUTING.md`](CONTRIBUTING.md) Track 1 · [`docs/task-authoring.md`](docs/task-authoring.md) |
 | **2. Harness code** — the runner, tools, verifiers and scoring under `src/` | Software engineers | [`CONTRIBUTING.md`](CONTRIBUTING.md) Track 2 |
 
-Items are submitted through two Google Forms (annotator registration, then task submission); both are linked in [`docs/task-authoring.md`](docs/task-authoring.md#4-how-to-submit), together with the rules an item must satisfy.
+Items are submitted through one Google Form, linked in [`docs/task-authoring.md`](docs/task-authoring.md#4-how-to-submit), together with the rules an item must satisfy.
 
 ## Where to read more
 

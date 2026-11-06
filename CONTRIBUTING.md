@@ -16,10 +16,11 @@ There are two ways to contribute, with different requirements:
 You do not need any AI/ML experience: you need to be an expert in your domain and able to state one
 unambiguous ground truth and defend it against a sceptical reviewer.
 
-## 1. Register and submit
+## 1. Submit
 
-1. **Register as an annotator** — <https://docs.google.com/forms/d/159NWfHjjZRg4pP5HzAyBStZldaby0kF1AMuI3y1mPIY>
-2. **Submit your items** with the **SciFlawBench Task submission form** — <https://docs.google.com/forms/d/e/1FAIpQLSdZKM8HSoGEXnV9oTWezMQhHekC2rcyH8r6VqzFjZ_DdsYAPg/closedform>
+**Submit your items** with the **SciFlawBench task submission form** — <FORM_LINK>
+
+The form also asks for your details, which stay private and are never published with a task. It needs a Google account if you upload files.
 
 Single items are welcome. If you submit a batch, include a dataset description (coverage, methods,
 AI use, quality control), described in

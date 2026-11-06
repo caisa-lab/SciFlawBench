@@ -49,17 +49,16 @@ No AI/ML experience is required — you only need to be an expert in your domain
 
 ## 4. How To Submit
 
-Submissions are collected through Google Forms, which define the fields you fill in (your identity, the domain, the task text, its ground truth, the tools it needs and the failure-mode flags it probes).
+Submissions are collected through one Google Form, which defines the fields you fill in: your details, which stay private and are never published with a task, the task text, up to four validators with their failure modes and correct answers, your sources, and any files. It needs a Google account if you upload files.
 
-1. **Register as an annotator** — <https://docs.google.com/forms/d/159NWfHjjZRg4pP5HzAyBStZldaby0kF1AMuI3y1mPIY>
-2. **Submit your items** — <https://docs.google.com/forms/d/e/1FAIpQLSdZKM8HSoGEXnV9oTWezMQhHekC2rcyH8r6VqzFjZ_DdsYAPg/closedform>
+**Submit your items** — <FORM_LINK>
 
-Register first, then submit single items or a curated batch; a batch should come with a dataset description (see [section 9](#9-review-dataset-description-and-ai-disclosure)). Questions, tool requests and proposals for new failure modes belong in the issue tracker.
+Submit single items or a curated batch; a batch should come with a dataset description (see [section 9](#9-review-dataset-description-and-ai-disclosure)). Questions, tool requests and proposals for new failure modes belong in the issue tracker.
 
 ## 5. From submission to harness task
 
 Accepted items are converted into harness tasks. [`../utils/build_task.ipynb`](../utils/build_task.ipynb) turns one submission row into a task line,
-checks it against these rules, and appends it to a task file.
+checks it against these rules, and appends it to a task file. [`../utils/import_form.py`](../utils/import_form.py) does this for submissions to the Google Form; see [`form-import.md`](form-import.md).
 
 A finished task looks like this:
 
@@ -94,6 +93,7 @@ Local data files for an item live in `data/tasks/assets/<task_id>/` and are addr
 ## 7. Answers: format, tolerance and rubrics
 
 * Keep answers short and machine-checkable: a value with tolerance, a canonical name, or a yes/no plus a justification rubric.
+* If a validator reads the answer automatically, say in the prompt exactly how the agent must write its final answer, with no text, units or code block around it: only the value for a single value, or a JSON object such as `{"mass": 12.3, "spin": 0.7}` for several. A numeric validator grades one number, so a list of numbers would leave the others ungraded. A JSON validator grades every field exactly, with no tolerance, so state the rounding; any explanation goes in a field such as `justification`.
 * Use standard terminology and nomenclature (IUPAC names, standard gene symbols, SI units).
 * For numerical answers state units, tolerance (e.g. ±5%) and significant figures.
 * For open-ended deliverables (plans, protocols, figures, reports) give an explicit **checklist rubric** — a list of required elements — instead of a single string, so two reviewers grade it the same way.
