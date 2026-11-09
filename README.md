@@ -158,7 +158,7 @@ utils/
 └── build_task.py      # the functions behind the notebook: build a task line, check it, append it
 ```
 
-[`utils/build_task.ipynb`](utils/build_task.ipynb) turns one submitted item into a task line: fill in the fields and it validates the item, computes the `task_id`, and appends it to a task file. See [`docs/task-authoring.md`](docs/task-authoring.md#5-from-submission-to-harness-task).
+[`utils/build_task.ipynb`](utils/build_task.ipynb) turns one submitted item into a task line: fill in the fields and it validates the item, computes the `task_id` (an MD5 of the prompt; when a task is accepted, the maintainers give it a fixed `SFB-NNNN` id and keep the MD5 in `prompt_md5`), and appends it to a task file. See [`docs/task-authoring.md`](docs/task-authoring.md#5-from-submission-to-harness-task).
 
 ## Requirements
 

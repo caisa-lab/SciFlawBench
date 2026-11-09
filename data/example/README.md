@@ -8,8 +8,8 @@ Each line of `tasks.jsonl` is a single JSON object describing one task. The four
 
 | Field           | Type                           | Description                                                                                                        |
 | --------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `task_id`       | `str`                          | 32-character MD5 hash of the `task` text, or a fixed id that starts with a letter (see `prompt_md5`).              |
-| `prompt_md5`    | `str` (optional)               | MD5 hash of the `task` text, recorded only when `task_id` is a fixed id.                                           |
+| `task_id`       | `str`                          | Unique id of the task. Tasks in the official set have a fixed id of the form `SFB-NNNN` (for example `SFB-9010`); a task without a fixed id uses the 32-character MD5 hash of its `task` text. |
+| `prompt_md5`    | `str` (optional)               | The MD5 hash of the `task` text, recorded for a task with a fixed `task_id`. The id then stays the same when the prompt is edited. |
 | `task`          | `str`                          | The prompt handed to the agent.                                                                                    |
 | `agent_id`      | `"code_agent" \| "tool_agent"` | Which registered agent should attempt the task.                                                                    |
 | `failure_modes` | `object`                       | The failure modes the task is designed to probe, split into `quantitative` and `qualitative` lists. See [Failure modes](#failure-modes). |
@@ -64,15 +64,15 @@ A validator whose `kwargs` its verifier can't take, such as a misspelt or missin
 
 > `index: -1` means "the last number in the answer"; use `0`, `1`, ... to pick a specific one. A task passes its correctness check when **all** of its validators pass — note that the per-run `status`/`success` flag only records whether the agent finished without raising, so read `check_results` (or the `Checks: n/m` summary) to judge correctness.
 >
-> `judge:rubric` is the one content-free verifier: instead of matching strings or numbers it asks a model to grade the whole trace against a rubric, so it can check things a regex cannot ("did the agent actually read the abstract it cited?"). It needs a `judge` section in the run config, is sent the rubric plus the run's trace, and returns the judge's score and justification. See [Judge settings](../../examples/README.md#judge-settings). `tasks.jsonl` contains a worked example (task `07032b5c991008f5e7dad4e25734de90`) that checks a numeric answer with `content:numeric_match` and the trace's reasoning with `judge:rubric`.
+> `judge:rubric` is the one content-free verifier: instead of matching strings or numbers it asks a model to grade the whole trace against a rubric, so it can check things a regex cannot ("did the agent actually read the abstract it cited?"). It needs a `judge` section in the run config, is sent the rubric plus the run's trace, and returns the judge's score and justification. See [Judge settings](../../examples/README.md#judge-settings). `tasks.jsonl` contains a worked example (task `SFB-9011`) that checks a numeric answer with `content:numeric_match` and the trace's reasoning with `judge:rubric`.
 
 ## Task ids and local files
 
-`task_id` is the **32-character MD5 hash of the `task` text**. Prompts that need a local file reference it through a `{TASK_ID}` placeholder, which stays in the stored prompt; the harness substitutes the real id when the task runs. The file itself lives in `../tasks/assets/<task_id>/`. A task can instead keep a fixed `task_id` (one that starts with a letter, e.g. `SFB-0042`) and record the hash in `prompt_md5`; its id, and so its assets folder, then stay the same when the prompt is edited. For example:
+Tasks in the official set have a fixed `task_id` of the form `SFB-NNNN` (for example `SFB-9010`), and the MD5 hash of the `task` text is stored in `prompt_md5`. Because the id is fixed, editing a prompt changes neither the id nor the assets folder. Prompts that need a local file reference it through a `{TASK_ID}` placeholder, which stays in the stored prompt; the harness substitutes the real id when the task runs. The file itself lives in `../tasks/assets/<task_id>/`. A task without a fixed id uses `task_id = md5(task)` instead. For example:
 
 ```json
 {
-  "task_id": "40897e4550180c736a05c904f440566c",
+  "task_id": "SFB-9010",
   "task": "... `data/tasks/assets/{TASK_ID}/measurements.csv` ...",
   "agent_id": "code_agent",
   "extra_tools": [{ "tool_name": "read_file" }]
@@ -81,7 +81,7 @@ A validator whose `kwargs` its verifier can't take, such as a misspelt or missin
 
 > IMPORTANT: A task must declare any tool it needs that the agent does not already have. The default `code_agent` / `tool_agent` ship with `web_search`, `wikipedia_search`, `visit_webpage`, `calculator`, `current_time` and `arxiv_search`. On the other hand, `read_file`, `json_answer_tool`, `numerics`, `significance`, `cosmology` and `sky` are opt-in and have to be listed in `extra_tools`. Listing a tool the agent already has is an error: smolagents rejects duplicate tool names, so only genuinely missing tools belong in `extra_tools`. See the [tool list](../../examples/README.md#tool-overrides) for every registered tool.
 
-Prompts that use no local files simply hash their plain text. Because the stored prompt is what gets hashed, the harness verifies `md5(task) == task_id` (or `== prompt_md5` for a fixed id) at load time and refuses any sample whose hash no longer matches its prompt. See [`../tasks/assets/README.md`](../tasks/assets/README.md) for the full convention.
+Prompts that use no local files simply hash their plain text. Because the stored prompt is what gets hashed, the harness verifies `md5(task) == prompt_md5` for a task with a fixed id (or `md5(task) == task_id` for a task without one) at load time and refuses any sample whose hash no longer matches its prompt. See [`../tasks/assets/README.md`](../tasks/assets/README.md) for the full convention.
 
 ## Usage
 

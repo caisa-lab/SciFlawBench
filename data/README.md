@@ -24,4 +24,4 @@ Holds the samples that make up the **official SciFlawBench**, split into one sub
 
 ### `tasks/assets/`
 
-Local, non-code files that tasks refer to (datasets, JSON, CSV, and similar structured data). Each task that needs a file gets its own subfolder **named after its `task_id`**, and can address it in the prompt as `data/tasks/assets/<task_id>/<file>`. See [`tasks/assets/README.md`](tasks/assets/README.md) for the naming/hashing convention.
+Local, non-code files that tasks refer to (datasets, JSON, CSV, and similar structured data). Each task that needs a file gets its own subfolder **named after its `task_id`** (for example `SFB-0042`), and can address it in the prompt as `data/tasks/assets/<task_id>/<file>`. See [`tasks/assets/README.md`](tasks/assets/README.md) for the naming/hashing convention.
