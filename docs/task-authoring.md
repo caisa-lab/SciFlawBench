@@ -65,7 +65,7 @@ A finished task looks like this:
 
 ```json
 {
-  "task_id": "40897e4550180c736a05c904f440566c",
+  "task_id": "SFB-9010",
   "task": "A CSV file with instrument readings is provided at `data/tasks/assets/{TASK_ID}/measurements.csv`. Each row has a `sample_id`, a `temperature`, and a `value` column. Read the file and compute the mean of the `value` column. Report the mean, rounded to two decimal places, as a single number.",
   "agent_id": "code_agent",
   "failure_modes": { "quantitative": ["correctness"], "qualitative": [] },

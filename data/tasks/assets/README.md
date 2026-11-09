@@ -6,8 +6,8 @@ Every task that needs a local file gets its **own folder inside `assets/`, named
 
 ```
 assets/
-└── SFB-0042/                             # the task's task_id
-    └── abstract.txt
+└── SFB-9010/                             # the task's task_id
+    └── measurements.csv
 ```
 
 The folder name is the id, so it is unique and stable, and a task can address its files through that id.
@@ -17,26 +17,26 @@ The folder name is the id, so it is unique and stable, and a task can address it
 Prompts are written with a `{TASK_ID}` placeholder wherever the id should appear (the folder name *is* the id), and are stored **with the placeholder still in place**:
 
 ```
-The abstract of the paper is provided at
-`data/tasks/assets/{TASK_ID}/abstract.txt`. ...
+A CSV file with instrument readings is provided at
+`data/tasks/assets/{TASK_ID}/measurements.csv`. ...
 ```
 
 When the task runs, the harness substitutes the task's real `task_id` for the placeholder, so the agent sees a concrete path:
 
 ```
-... `data/tasks/assets/SFB-0042/abstract.txt` ...
+... `data/tasks/assets/SFB-9010/measurements.csv` ...
 ```
 
 ## Task ids and `prompt_md5`
 
-Tasks in the official set have a **fixed id** of the form `SFB-NNNN` (for example `SFB-0042`). The id is a name: it is assigned once and does not change when the prompt is edited, so the assets folder `assets/SFB-0042/` stays the same too.
+Tasks in the official set have a **fixed id** of the form `SFB-NNNN` (for example `SFB-9010`). The id is a name: it is assigned once and does not change when the prompt is edited, so the assets folder `assets/SFB-9010/` stays the same too.
 
 The hash of the prompt is stored separately in `prompt_md5`. It is the **32-character MD5 hash of the stored prompt text**, including the `{TASK_ID}` placeholder:
 
 ```python
 import hashlib
 
-prompt = "The abstract is provided at `data/tasks/assets/{TASK_ID}/abstract.txt`. ..."
+prompt = "A CSV file is provided at `data/tasks/assets/{TASK_ID}/measurements.csv`. ..."
 prompt_md5 = hashlib.md5(prompt.encode("utf-8")).hexdigest()   # 32 hex chars -> the prompt_md5 field
 ```
 
@@ -66,5 +66,5 @@ python src/make_task_ids.py data/tasks/v0/tasks.jsonl --check
 
 - Keep big/binary assets out of Git when you can. Instead, document the source and how to obtain the file here.
 - Give each asset a clear name, and note here which task ids use it.
-- Never rename an assets folder by hand: its name must match the task's `task_id`, which is either its fixed id (for example `SFB-0042`) or, for a task without one, the MD5 hash of the prompt. If you edit the prompt of a task without a fixed id, recompute the id and rename the folder to match.
+- Never rename an assets folder by hand: its name must match the task's `task_id`, which is either its fixed id (for example `SFB-9010`) or, for a task without one, the MD5 hash of the prompt. If you edit the prompt of a task without a fixed id, recompute the id and rename the folder to match.
 - If an asset is shared by several tasks, note that here rather than duplicating it into every folder.
