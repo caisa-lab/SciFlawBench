@@ -293,7 +293,7 @@ The project grows along two tracks:
 | **1. Benchmark items** — scientific tasks with a ground truth and failure-mode labels | Practising scientists | [`CONTRIBUTING.md`](CONTRIBUTING.md) Track 1 · [`docs/task-authoring.md`](docs/task-authoring.md) |
 | **2. Harness code** — the runner, tools, verifiers and scoring under `src/` | Software engineers | [`CONTRIBUTING.md`](CONTRIBUTING.md) Track 2 |
 
-Items are submitted through two Google Forms (annotator registration, then task submission); both are linked in [`docs/task-authoring.md`](docs/task-authoring.md#4-how-to-submit), together with the rules an item must satisfy.
+Items are submitted through one Google Form, linked in [`docs/task-authoring.md`](docs/task-authoring.md#4-how-to-submit), together with the rules an item must satisfy.
 
 ## Where to read more
 
