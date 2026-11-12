@@ -16,14 +16,15 @@ There are two ways to contribute, with different requirements:
 You do not need any AI/ML experience: you need to be an expert in your domain and able to state one
 unambiguous ground truth and defend it against a sceptical reviewer.
 
-## 1. Register and submit
+## 1. Submit
 
-1. **Register as an annotator** — <https://docs.google.com/forms/d/159NWfHjjZRg4pP5HzAyBStZldaby0kF1AMuI3y1mPIY>
-2. **Submit your items** with the **SciFlawBench Task submission form** — <https://docs.google.com/forms/d/e/1FAIpQLSdZKM8HSoGEXnV9oTWezMQhHekC2rcyH8r6VqzFjZ_DdsYAPg/closedform>
+**Submit your items** with the **SciFlawBench task submission form** — <https://docs.google.com/forms/d/16cx3SE1cAAC65SNGUVKTQ7GRak4t4zC9gdthe4t7s-U/viewform>
 
-Single items are welcome. If you submit a batch, include a dataset description (coverage, methods,
-AI use, quality control), described in
-[`docs/task-authoring.md`](docs/task-authoring.md#9-review-dataset-description-and-ai-disclosure).
+The form also asks for your details, which stay private and are never published with a task. It needs a
+Google account, because it accepts file uploads.
+
+You can submit one item or several. A submitted item can't be edited: to change one, email
+<sciflawbench@uni-bonn.de> with its task id.
 
 ## 2. What makes a good item
 
@@ -32,39 +33,40 @@ AI use, quality control), described in
 * It has **one unambiguous ground truth**, or an explicit checklist rubric.
 * It has **no shortcut** — it cannot be passed by guessing, dumping every candidate answer, or doing
   nothing.
-* It is **labelled honestly**: only the failure modes the item genuinely probes are set to `true`.
+* It is **labelled honestly**: it names only the failure modes it genuinely probes, each graded by its own
+  validator.
 
 ## 3. What items are designed to catch
 
-Every item is labelled with the flaws it probes — 4 quantitative and 7 qualitative flags:
+Every item is labelled with the flaws it probes, chosen from 4 quantitative and 5 qualitative failure modes:
 
 | Quantitative | Qualitative |
 | ------------ | ----------- |
 | `correctness`, `correct_tool_calls`, `code_safety`, `robustness_against_adversarial_inputs` | `sycophancy`, `planning`, `reasoning`, `uncertainty_awareness`, `implicit_domain_knowledge` |
 
-Most items should set only **1–3** of these to `true`; more than 3–4 usually means the item is doing too
-much. Each flag — what it measures, good and bad designs, a worked example, and the check that
-implements it in the harness — is documented in [`docs/failure-modes.md`](docs/failure-modes.md).
+Most items probe only **1–3** of these, each graded by its own validator; the form takes at most four, and
+more than three usually means the item is doing too much. Each mode — what it measures, good and bad
+designs, a worked example, and the validators that grade it — is documented in
+[`docs/failure-modes.md`](docs/failure-modes.md).
 
 ## 4. Using tools
 
-Items may hand the agent tools: web search, arXiv/Wikipedia lookup, webpage visiting, a calculator, a
-file reader and a JSON-answer validator. The rules that trip people up:
+The agent always has web search, arXiv and Wikipedia lookup, webpage visiting, a calculator, the current
+time and a Python interpreter. If you upload files with your item, it also gets a file reader. The rules
+that trip people up:
 
-* Tool names must be **canonical** — the full list is in [`docs/tools.md`](docs/tools.md). Never invent
-  a name.
-* An item that must read a supplied file needs `read_file`: the code executor cannot open files on its
-  own, and cannot import `numpy`, `pandas`, `astropy`, `matplotlib` or similar. Design the arithmetic so
-  it is doable with the standard library or a tool.
-* Domain tools (`rdkit`, `blast`, `astropy`, ...) are **not implemented yet** — name them in the item's
-  `notes` and open an issue so they can be added before the item runs.
+* The Python interpreter cannot open files, and cannot import `numpy`, `pandas`, `astropy`, `matplotlib`
+  or similar. Design the arithmetic so it is doable with the standard library or a tool.
+* Other tools are listed in [`docs/tools.md`](docs/tools.md); to use one, ask for it in a source note.
+* Domain tools (`rdkit`, `blast`, `astropy`, ...) are **not implemented yet** — ask for them in a source
+  note and open an issue so they can be added before the item runs.
 * Requirements like "must call tool X with parameter Y" are checked by a rubric applied to the run's
   trace, since the harness has no mechanical tool-call verifier yet.
 
 ## 5. Before you submit
 
 Work through the [self-review checklist](docs/task-authoring.md#10-self-review-checklist). In short:
-self-contained; one answer or an explicit rubric; honest labels; canonical tools; no shortcuts;
+self-contained; one answer or an explicit rubric; honest labels; tools the agent has; no shortcuts;
 disambiguated entities; units with tolerances; and a reference a reviewer can check.
 
 Accepted items are checked by a domain expert and an agentic-evaluation reviewer, who comment on or
