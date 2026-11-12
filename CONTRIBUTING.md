@@ -72,6 +72,10 @@ flag issues rather than editing your item. See
 [`docs/task-authoring.md`](docs/task-authoring.md) for how to submit an item and how
 your submission becomes a harness task.
 
+Accepted items are published in this repository under the
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license, so anyone who reuses them must credit
+the SciFlawBench maintainers and contributors; see [`data/README.md`](data/README.md#license).
+
 ## 6. Reporting a flawed item or a missing capability
 
 If an item is unsolvable, mislabelled, ambiguous, or needs a tool or a check that does not exist yet,

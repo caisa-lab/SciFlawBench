@@ -315,4 +315,4 @@ TBD
 
 ## License
 
-This project is licensed under the MIT License. See [`LICENSE`](LICENSE) for details.
+The code is licensed under the MIT License; see [`LICENSE`](LICENSE). The tasks and their files in [`data/`](data/) are licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), so anyone who reuses them must credit the SciFlawBench maintainers and contributors; see [`data/README.md`](data/README.md#license).
