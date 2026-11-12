@@ -1,5 +1,7 @@
 # Task contribution guide
 
+**Welcome to the SciFlawBench task contribution guide!** Thank you for thinking of contributing a task: this page explains what SciFlawBench is, walks through three real tasks, and shows you how to fill in the submission form.
+
 **SciFlawBench** measures the different ways AI agents fail at simple, everyday scientific tasks. Rather than the hardest research problems, we collect real, routine tasks and count how often each kind of mistake, or failure mode, happens. We are looking for scientists to write tasks: a real problem from your field, its right answer, and a way to catch the mistake a plausible-looking AI agent would make.
 
 ### [Submit a task →](https://docs.google.com/forms/d/16cx3SE1cAAC65SNGUVKTQ7GRak4t4zC9gdthe4t7s-U/viewform)
