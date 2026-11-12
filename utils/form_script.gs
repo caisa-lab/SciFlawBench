@@ -10,8 +10,6 @@ const FAILURE_MODES = [
   "planning",
   "reasoning",
   "uncertainty_awareness",
-  "aesthetic_quality",
-  "lost_context_on_multi_agent_tasks",
   "implicit_domain_knowledge"
 ];
 
