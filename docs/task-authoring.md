@@ -49,11 +49,13 @@ No AI/ML experience is required — you only need to be an expert in your domain
 
 ## 4. How To Submit
 
-Submissions are collected through one Google Form, which defines the fields you fill in: your details, which stay private and are never published with a task, the task text, up to four validators with their failure modes and correct answers, your sources, and any files. It needs a Google account if you upload files.
+Submissions are collected through one Google Form, which defines the fields you fill in: your details, the task text, up to four validators with their failure modes and correct answers, your sources, and any files. The form needs a Google account, because it accepts file uploads.
 
-**Submit your items** — <FORM_LINK>
+**Submit your items** — <https://docs.google.com/forms/d/16cx3SE1cAAC65SNGUVKTQ7GRak4t4zC9gdthe4t7s-U/viewform>
 
-Submit single items or a curated batch; a batch should come with a dataset description (see [section 9](#9-review-dataset-description-and-ai-disclosure)). Questions, tool requests and proposals for new failure modes belong in the issue tracker.
+Your details stay private: they are used only to contact and credit you, are never published with a task, and are deleted one month after the results are fully published.
+
+Submit one item or several. Anything else the reviewers should know goes in a source note. A submitted item can't be edited: to change one, email <sciflawbench@uni-bonn.de> with its task id. Questions, tool requests and proposals for new failure modes belong in the issue tracker or at the same address.
 
 ## 5. From submission to harness task
 

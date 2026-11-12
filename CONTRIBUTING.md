@@ -18,13 +18,13 @@ unambiguous ground truth and defend it against a sceptical reviewer.
 
 ## 1. Submit
 
-**Submit your items** with the **SciFlawBench task submission form** — <FORM_LINK>
+**Submit your items** with the **SciFlawBench task submission form** — <https://docs.google.com/forms/d/16cx3SE1cAAC65SNGUVKTQ7GRak4t4zC9gdthe4t7s-U/viewform>
 
-The form also asks for your details, which stay private and are never published with a task. It needs a Google account if you upload files.
+The form also asks for your details, which stay private and are never published with a task. It needs a
+Google account, because it accepts file uploads.
 
-Single items are welcome. If you submit a batch, include a dataset description (coverage, methods,
-AI use, quality control), described in
-[`docs/task-authoring.md`](docs/task-authoring.md#9-review-dataset-description-and-ai-disclosure).
+You can submit one item or several. A submitted item can't be edited: to change one, email
+<sciflawbench@uni-bonn.de> with its task id.
 
 ## 2. What makes a good item
 
