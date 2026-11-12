@@ -1,9 +1,9 @@
 # SciFlawBench Failure Modes
 
-SciFlawBench items are labelled with the failure modes they are designed to probe. Each mode is a boolean flag on an item: `true` means "this item is built to catch an agent that fails this way", `false` means it is not.
-The flags split into two families:
+SciFlawBench items are labelled with the failure modes they are designed to probe: naming a mode means "this item is built to catch an agent that fails this way". In the submission form you choose one failure mode for each validator.
+The modes split into two families:
 
-| Family | Flags | How it is graded |
+| Family | Modes | How it is graded |
 | --- | --- | --- |
 | **Quantitative** (4) | `correctness`, `correct_tool_calls`, `code_safety`, `robustness_against_adversarial_inputs` | Deterministic checks on the answer, or a rubric applied to the trace |
 | **Qualitative** (5) | `sycophancy`, `planning`, `reasoning`, `uncertainty_awareness`, `implicit_domain_knowledge` | An explicit checklist-style rubric, graded by an LLM judge |

@@ -12,7 +12,7 @@ This is the detailed reference for **contributing benchmark items** (tasks, thei
 6. [Formatting rules](#6-formatting-rules)
 7. [Answers: format, tolerance and rubrics](#7-answers-format-tolerance-and-rubrics)
 8. [Evidence and verifiability](#8-evidence-and-verifiability)
-9. [Review, dataset description and AI disclosure](#9-review-dataset-description-and-ai-disclosure)
+9. [Review and AI use](#9-review-and-ai-use)
 10. [Self-review checklist](#10-self-review-checklist)
 11. [FAQ](#11-faq)
 
@@ -49,12 +49,13 @@ No AI/ML experience is required — you only need to be an expert in your domain
 
 ## 4. How To Submit
 
-Submissions are collected through Google Forms, which define the fields you fill in (your identity, the domain, the task text, its ground truth, the tools it needs and the failure-mode flags it probes).
+Submissions are collected through one Google Form, which defines the fields you fill in: your details, the task text, up to four validators with their failure modes and correct answers, your sources, and any files. The form needs a Google account, because it accepts file uploads.
 
-1. **Register as an annotator** — <https://docs.google.com/forms/d/159NWfHjjZRg4pP5HzAyBStZldaby0kF1AMuI3y1mPIY>
-2. **Submit your items** — <https://docs.google.com/forms/d/e/1FAIpQLSdZKM8HSoGEXnV9oTWezMQhHekC2rcyH8r6VqzFjZ_DdsYAPg/closedform>
+**Submit your items** — <https://docs.google.com/forms/d/16cx3SE1cAAC65SNGUVKTQ7GRak4t4zC9gdthe4t7s-U/viewform>
 
-Register first, then submit single items or a curated batch; a batch should come with a dataset description (see [section 9](#9-review-dataset-description-and-ai-disclosure)). Questions, tool requests and proposals for new failure modes belong in the issue tracker.
+Your details stay private: they are used only to contact and credit you, are never published with a task, and are deleted one month after the results are fully published.
+
+Submit one item or several. Anything else the reviewers should know goes in a source note. A submitted item can't be edited: to change one, email <sciflawbench@uni-bonn.de> with its task id. Questions, tool requests and proposals for new failure modes belong in the issue tracker or at the same address.
 
 ## 5. From submission to harness task
 
@@ -78,7 +79,7 @@ Three things follow from this mapping and are worth repeating:
 
 * **There is no `ground_truth` field in the task file.** The expected answer lives in the validator kwargs. An `answer`/`ground_truth` key written into a task line is silently ignored by the loader — if a check does not reference your ground truth, nothing will catch a wrong answer.
 * **`task_id` is a fixed id like `SFB-0042`.** Tasks in the official set keep their id when the prompt is edited, and the MD5 of the prompt is stored in `prompt_md5`. A task without a fixed id uses `task_id = md5(task)`. In both cases the run refuses to start if the prompt no longer matches its hash, so re-derive it after every edit with `python src/make_task_ids.py <task-file>` (`--check` for a no-write): it updates `prompt_md5` for fixed ids, and for md5 ids it updates the id and renames the asset folder.
-* **`failure_modes` is required and drives scoring.** It is the list of the modes you set to `true`, split into `quantitative` and `qualitative` (at least one mode in total). Each declared mode gets **exactly one** validator, which names it in `failure_mode`; list them in the order of the modes (quantitative first), or the run refuses the task. The harness then reports an overall score and one score per mode, each taken from that mode's own check, restricted to the tasks that declare it, and with every task counting once — see [Scoring](../README.md#scoring).
+* **`failure_modes` is required and drives scoring.** It is the list of the modes the item probes, split into `quantitative` and `qualitative` (at least one mode in total). Each declared mode gets **exactly one** validator, which names it in `failure_mode`; list them in the order of the modes (quantitative first), or the run refuses the task. The harness then reports an overall score and one score per mode, each taken from that mode's own check, restricted to the tasks that declare it, and with every task counting once — see [Scoring](../README.md#scoring).
 
 Local data files for an item live in `data/tasks/assets/<task_id>/` and are addressed in the prompt as `data/tasks/assets/{TASK_ID}/<file>`; the harness substitutes the real id at run time. See [`../data/README.md`](../data/README.md). If files are required for a task, make sure to create them in the appropriate asset folder with the correct filenames and folder name.
 
@@ -87,9 +88,9 @@ Local data files for an item live in `data/tasks/assets/<task_id>/` and are addr
 * **Self-contained.** Include any tables, sequences or file contents inline or as an attachment that a sandboxed agent could fetch. The agent cannot browse your filesystem.
 * **Machine-checkable ground truth** where possible: an exact string, a numeric value with tolerance, or a short rubric of required elements.
 * **Canonical tool names only** — from [`tools.md`](tools.md). Do not invent names.
-* **All 9 failure-mode booleans present**, unused ones `false`.
+* **One validator per failure mode.** Name only the failure modes the item genuinely probes, and give each its own validator.
 * **No shortcuts.** Reject designs an agent could pass by dumping every possible answer, doing nothing, or exploiting a pattern in the ground truth.
-* **Pinned versions** for anything whose behaviour is version-dependent (state the version in `notes`).
+* **Pinned versions** for anything whose behaviour is version-dependent (state the version in a source note).
 
 ## 7. Answers: format, tolerance and rubrics
 
@@ -107,23 +108,13 @@ Provide, where possible, a reference a reviewer can check:
 * **Acceptable** — well-known textbooks, established technical resources (e.g. NEB or Sigma-Aldrich bulletins).
 * **Avoid** — personal blogs, unmoderated forums, social media, or AI-generated summaries as the sole source.
 
-If an item deliberately withholds part of the reference from the agent (for example an implicit-domain-knowledge check), say so in `notes` and keep the hidden reference with the organizers, not in the prompt.
+If an item deliberately withholds part of the reference from the agent (for example an implicit-domain-knowledge check), say so in a source note and keep the hidden reference out of the prompt.
 
-## 9. Review, dataset description and AI disclosure
+## 9. Review and AI use
 
 Every item is checked by **two reviewers** — a domain expert and an agentic-evaluation reviewer —before acceptance. Reviewers comment on or flag issues rather than editing your item directly.
 
-### Dataset description
-
-Each contributor or group submits a description covering:
-
-* **Coverage** — which domains, subfields and failure modes your items represent.
-* **Methods** — how the items were created (from personal research experience, adapted from real protocols/papers, or AI-assisted and then verified).
-* **AI use disclosure** — which AI tools helped draft the items, how, and confirmation that a human domain expert independently verified the ground truth and the labels.
-* **Quality control** — the review and verification you applied.
-* **Challenges** — notable difficulties and how you resolved them.
-
-The description should be detailed enough that another expert could reconstruct a comparable set.
+AI tools may help you draft an item, but a human domain expert must independently verify every ground truth and every failure-mode label.
 
 ## 10. Self-review checklist
 
@@ -133,25 +124,23 @@ Before submitting, verify **all** of the following:
 - [ ] There is exactly one correct answer, or an explicit rubric.
 - [ ] The item is realistic — it reflects a genuine scientific/agentic task.
 - [ ] The domain/subfield label is correct.
-- [ ] Every failure-mode flag marked `true` is genuinely probed by the item; everything else is
-      `false`.
-- [ ] Tool names are canonical, tools the agent lacks are declared, and versions are pinned where it
-      matters.
+- [ ] Every failure mode you chose is genuinely probed by the item, and has its own validator.
+- [ ] Any tool the agent lacks is asked for in a source note, and versions are stated where it matters.
 - [ ] The item cannot be passed by a shortcut (empty response, listing all answers, guessing).
 - [ ] Entities are disambiguated (full names, not bare acronyms unless universally standard).
 - [ ] Numbers have units, tolerance and significant figures.
 - [ ] A reviewer can verify the ground truth from the reference you supplied.
-- [ ] Any AI assistance is disclosed and human-verified.
+- [ ] Anything drafted with AI has been verified by a human domain expert.
 
 ## 11. FAQ
 
-**Do all 9 failure-mode flags need to be considered?**
+**How many failure modes should an item probe?**
 
-- Yes — all must be present, but most items should set only 1–3 to `true`. More than 3–4 usually means the item is doing too much; split it.
+- Most items probe 1–3, each with its own validator; the form takes at most four. More than three usually means the item is doing too much; split it.
 
 **Can one item test a quantitative and a qualitative mode?**
 
-- Yes — that is common and encouraged, as long as each `true` flag is independently justified in `notes` and has a matching validator.
+- Yes — that is common and encouraged, as long as the item genuinely probes each mode and each has its own validator.
 
 **What if the ground truth is not a single value?**
 
@@ -163,12 +152,12 @@ Before submitting, verify **all** of the following:
 
 **My item needs a tool or library that does not exist yet.**
 
-- List it in `notes`, open an issue, and expect a delay while the tool is added — see [`tools.md`](tools.md#5-tools-requested-but-not-implemented-yet).
+- Ask for it in a source note, open an issue, and expect a delay while the tool is added — see [`tools.md`](tools.md#5-tools-requested-but-not-implemented-yet).
 
 **Can I use AI to draft items?**
 
-- Yes, with disclosure (section 9). Every ground truth and every label must be independently verified by a human domain expert; AI-drafted items without that verification are rejected.
+- Yes. Every ground truth and every label must be independently verified by a human domain expert; AI-drafted items without that verification are rejected.
 
 **How is authorship credit assigned?**
 
-- Contributors with at least a threshold number of accepted items after peer review are invited as co-authors on the resulting dataset paper; the threshold is announced with the release timeline.
+- Contributors with three or more items accepted after review are invited as co-authors of the dataset paper; contributors with fewer accepted items are thanked in its acknowledgements.
