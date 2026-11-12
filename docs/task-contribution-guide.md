@@ -216,6 +216,7 @@ If your task needs more, such as the statistics or cosmology tools in [tools.md]
 - [ ] **Required:** it is a real problem from your field, not trivia.
 - [ ] **Required:** everything needed is in the description.
 - [ ] **Required:** a plausible-looking agent would fall into the trap, and the task can't be passed by guessing, listing every option, or doing nothing.
+- [ ] **Required:** you use at most four failure modes in the task.
 - [ ] **Required:** numbers have units and a tolerance.
 - [ ] **Required:** a reviewer can check the answer from your sources.
 - [ ] **Required:** anything drafted with AI has been checked by you.
