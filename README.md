@@ -290,7 +290,7 @@ The project grows along two tracks:
 
 | Track | Who it is for | Where it starts |
 | ----- | ------------- | --------------- |
-| **1. Benchmark items** — scientific tasks with a ground truth and failure-mode labels | Practising scientists | [`CONTRIBUTING.md`](CONTRIBUTING.md) Track 1 · [`docs/task-authoring.md`](docs/task-authoring.md) |
+| **1. Benchmark items** — scientific tasks with a ground truth and failure-mode labels | Practising scientists | [`docs/task-contribution-guide.md`](docs/task-contribution-guide.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md) Track 1 · [`docs/task-authoring.md`](docs/task-authoring.md) |
 | **2. Harness code** — the runner, tools, verifiers and scoring under `src/` | Software engineers | [`CONTRIBUTING.md`](CONTRIBUTING.md) Track 2 |
 
 Items are submitted through one Google Form, linked in [`docs/task-authoring.md`](docs/task-authoring.md#4-how-to-submit), together with the rules an item must satisfy.
@@ -303,6 +303,7 @@ Items are submitted through one Google Form, linked in [`docs/task-authoring.md`
 | [`data/README.md`](data/README.md) | task-file layout, task ids and the asset convention |
 | [`data/example/README.md`](data/example/README.md) | the per-task fields and the verifier reference |
 | [`docs/README.md`](docs/README.md) | index of the documentation set |
+| [`docs/task-contribution-guide.md`](docs/task-contribution-guide.md) | start here to submit a task: three real tasks and how to fill in the form |
 | [`docs/task-authoring.md`](docs/task-authoring.md) | how to author and submit an item |
 | [`docs/failure-modes.md`](docs/failure-modes.md) | every failure mode, and the check that implements it |
 | [`docs/tools.md`](docs/tools.md) | canonical tool names, tool-surface rules and code-executor limits |

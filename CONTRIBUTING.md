@@ -18,6 +18,9 @@ unambiguous ground truth and defend it against a sceptical reviewer.
 
 ## 1. Submit
 
+New to SciFlawBench? Start with the [task contribution guide](docs/task-contribution-guide.md): what a task
+is, three real tasks, and how to fill in the form.
+
 **Submit your items** with the **SciFlawBench task submission form** — <https://docs.google.com/forms/d/16cx3SE1cAAC65SNGUVKTQ7GRak4t4zC9gdthe4t7s-U/viewform>
 
 The form also asks for your details, which stay private and are never published with a task. It needs a
@@ -167,6 +170,7 @@ If the addition is more structural or would generally benefit from having more i
 | [`README.md`](README.md) | installing the harness, the run configuration and how to run a benchmark |
 | [`examples/README.md`](examples/README.md) | every run-configuration key, every runner flag, and the LLM-judge settings |
 | [`docs/README.md`](docs/README.md) | index of the documentation set |
+| [`docs/task-contribution-guide.md`](docs/task-contribution-guide.md) | start here to submit a task: three real tasks and how to fill in the form |
 | [`docs/task-authoring.md`](docs/task-authoring.md) | contributing benchmark items: schema, scope, review process |
 | [`docs/failure-modes.md`](docs/failure-modes.md) | the failure modes items are labelled with, and how each is checked |
 | [`docs/tools.md`](docs/tools.md) | canonical tool names, tool surface rules, executor limits |
