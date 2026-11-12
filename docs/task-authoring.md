@@ -114,7 +114,7 @@ If an item deliberately withholds part of the reference from the agent (for exam
 
 Every item is checked by **two reviewers** — a domain expert and an agentic-evaluation reviewer —before acceptance. Reviewers comment on or flag issues rather than editing your item directly.
 
-AI tools may help you draft an item. If they did, say in a source note which tools you used and how. A human domain expert must independently verify every ground truth and every failure-mode label.
+AI tools may help you draft an item, but a human domain expert must independently verify every ground truth and every failure-mode label.
 
 ## 10. Self-review checklist
 
@@ -130,7 +130,7 @@ Before submitting, verify **all** of the following:
 - [ ] Entities are disambiguated (full names, not bare acronyms unless universally standard).
 - [ ] Numbers have units, tolerance and significant figures.
 - [ ] A reviewer can verify the ground truth from the reference you supplied.
-- [ ] Any AI assistance is disclosed in a source note and human-verified.
+- [ ] Anything drafted with AI has been verified by a human domain expert.
 
 ## 11. FAQ
 
@@ -156,7 +156,7 @@ Before submitting, verify **all** of the following:
 
 **Can I use AI to draft items?**
 
-- Yes, if you say so in a source note (see [section 9](#9-review-and-ai-use)). Every ground truth and every label must be independently verified by a human domain expert; AI-drafted items without that verification are rejected.
+- Yes. Every ground truth and every label must be independently verified by a human domain expert; AI-drafted items without that verification are rejected.
 
 **How is authorship credit assigned?**
 
