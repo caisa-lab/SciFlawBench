@@ -229,8 +229,9 @@ Run `python src/main.py --help` for the complete list.
 Each task is scored by the fraction of its validators that pass: `1.0` when every check passes, `0.0` when none do, and a task with no checks at all has no score. At the end of a run the harness aggregates those task scores into `scores.json` and appends a matching block to `run_summary.log`:
 
 - an **overall** score — the mean task score across every task;
-- a **per failure mode** score for every mode the tasks declare in their `failure_modes` field, measured only over the tasks that declare that mode. Each task grades every declared mode with exactly one check, which names the mode in its `failure_mode`, so a mode's score comes from its own check (e.g. a run that gets the number right but agrees with a false premise scores 1 for `correctness` and 0 for `sycophancy`); and
-- a score for each **family** (`quantitative`, `qualitative`), from the checks of that family's modes.
+- a **per failure mode** score for every mode the tasks declare in their `failure_modes` field, measured only over the tasks that declare that mode. Each task grades every declared mode with exactly one check, which names the mode in its `failure_mode`, so a mode's score comes from its own check (e.g. a run that gets the number right but agrees with a false premise scores 1 for `correctness` and 0 for `sycophancy`);
+- a score for each **family** (`quantitative`, `qualitative`), from the checks of that family's modes; and
+- a score for each **task**: the mean over its scored runs, with each run's score and the score of each of its failure modes (under `tasks` in `scores.json`, and one line per task in `run_summary.log`). It shows which tasks are hard, and a task that no model ever passes often has a broken validator.
 
 Every score averages each task's runs (repetitions) first and then the tasks, so a task counts once however many of its runs were recorded. Next to each score, `scores.json` gives `total` (the scored runs behind it) and `passed` (those that passed every check), `tasks`, `runs` (every recorded run of those tasks) and `excluded` (the runs left out, see below); `pass_rate` is the fraction of the tasks whose mean over their scored runs is 1.0.
 
@@ -253,7 +254,7 @@ logs/<timestamp>/            # the `log_path` itself when `restarting` is set
 ├── run_manifest.sha256      # checksum of the manifest above
 ├── aggregate_results.jsonl  # one line per finished run (each links to the manifest sha)
 ├── run_summary.log          # human-readable progress log (ends with the score block)
-├── scores.json              # overall, per-family and per-failure-mode scores
+├── scores.json              # overall, per-family, per-failure-mode and per-task scores
 └── results/                 # per-task results (one file per task id, one line per repetition)
     ├── <task_id>.jsonl      # one line per repetition
     ├── <task_id>.<rep>.partial.json  # events recorded before a repetition was killed
