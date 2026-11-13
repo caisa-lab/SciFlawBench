@@ -26,6 +26,66 @@ checks) or the whole run trace (an LLM judge), and the harness aggregates every 
 
 Two mechanisms keep a long run inside the model's context window. **Context hygiene** keeps every model call within `model_max_context - max_new_tokens` (the window is auto-detected, or set in the config), evicting the oldest observations first; evicted text is **off-loaded** to a per-task `memory.md` with a pointer left behind, so nothing is lost. **Artifact spill-over** writes any tool output larger than `tool_output_max_chars` to a per-task artifact directory, leaving the agent a short preview plus the `search_artifact`/`read_artifact`/`list_artifacts` tools to recover the rest — so a large page or result set is never simply lost to a truncation.
 
+## The task set
+
+<!-- task-stats:start -->
+**51 accepted tasks** · 8 of 9 failure modes covered · 99 validators · 8 tasks with files
+
+```text
+Tasks per failure mode
+
+Quantitative
+  correctness                            ██████████████████████████████ 31
+  correct_tool_calls                     ████████████████ 17
+  robustness_against_adversarial_inputs  ████████ 8
+  code_safety                            0  ← needs tasks
+
+Qualitative
+  sycophancy                             ████████████ 12
+  implicit_domain_knowledge              ███████████ 11
+  reasoning                              ██████████ 10
+  planning                               ██████ 6
+  uncertainty_awareness                  ████ 4
+
+How tasks are graded
+  judge and automatic validators  ██████████████████████████████ 33
+  judge validators only           ███████████ 12
+  automatic validators only       █████ 6
+
+Validators per task
+  1  ████████████████████ 16
+  2  ██████████████████████████████ 24
+  3  ███████████ 9
+  4  ██ 2
+
+Prompt length (words)
+  0-49     ███████████████████ 14
+  50-99    ██████████████████████████████ 22
+  100-149  ████████████ 9
+  150-199  ███████ 5
+  200+     █ 1
+```
+
+<details>
+<summary>Which validators grade each failure mode</summary>
+
+| Failure mode | Validators |
+|---|---|
+| `correctness` | `content:numeric_match` 18, `content:json_output` 7, `content:numeric_within_range` 2, `content:paper_json_match` 2, `content:scientific_notation` 1, `judge:rubric` 1 |
+| `correct_tool_calls` | `judge:rubric` 17 |
+| `code_safety` | none yet |
+| `robustness_against_adversarial_inputs` | `content:numeric_match` 7, `judge:rubric` 1 |
+| `sycophancy` | `judge:rubric` 11, `content:numeric_match` 1 |
+| `planning` | `judge:rubric` 6 |
+| `reasoning` | `judge:rubric` 10 |
+| `uncertainty_awareness` | `judge:rubric` 4 |
+| `implicit_domain_knowledge` | `judge:rubric` 8, `content:numeric_match` 3 |
+
+</details>
+<!-- task-stats:end -->
+
+These numbers cover the accepted tasks in [`data/tasks/`](data/tasks/), and [`utils/task_stats.py`](utils/task_stats.py) updates them after each merge. Automatic validators read the final answer, and judge validators grade the whole run. A failure mode with few or no tasks is where a new submission helps most; see [Contributing](#contributing).
+
 ## Repository overview
 
 ### Source
@@ -100,7 +160,7 @@ utils/
 └── import_form.py     # turn form submissions into task lines on a local branch
 ```
 
-[`utils/build_task.ipynb`](utils/build_task.ipynb) turns one submitted item into a task line: fill in the fields and it validates the item, computes the `task_id`, and appends it to a task file. See [`docs/task-authoring.md`](docs/task-authoring.md#5-from-submission-to-harness-task).
+[`utils/build_task.ipynb`](utils/build_task.ipynb) turns one submitted item into a task line: fill in the fields and it validates the item, computes the `task_id` (an MD5 of the prompt; when a task is accepted, the maintainers give it a fixed `SFB-NNNN` id and keep the MD5 in `prompt_md5`), and appends it to a task file. See [`docs/task-authoring.md`](docs/task-authoring.md#5-from-submission-to-harness-task).
 
 [`utils/import_form.py`](utils/import_form.py) does the same for submissions to the Google Form, adding one commit per task to a local branch for a maintainer to review. See [`docs/form-import.md`](docs/form-import.md).
 
@@ -234,7 +294,7 @@ The project grows along two tracks:
 
 | Track | Who it is for | Where it starts |
 | ----- | ------------- | --------------- |
-| **1. Benchmark items** — scientific tasks with a ground truth and failure-mode labels | Practising scientists | [`CONTRIBUTING.md`](CONTRIBUTING.md) Track 1 · [`docs/task-authoring.md`](docs/task-authoring.md) |
+| **1. Benchmark items** — scientific tasks with a ground truth and failure-mode labels | Practising scientists | [`docs/task-contribution-guide.md`](docs/task-contribution-guide.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md) Track 1 · [`docs/task-authoring.md`](docs/task-authoring.md) |
 | **2. Harness code** — the runner, tools, verifiers and scoring under `src/` | Software engineers | [`CONTRIBUTING.md`](CONTRIBUTING.md) Track 2 |
 
 Items are submitted through one Google Form, linked in [`docs/task-authoring.md`](docs/task-authoring.md#4-how-to-submit), together with the rules an item must satisfy.
@@ -247,6 +307,7 @@ Items are submitted through one Google Form, linked in [`docs/task-authoring.md`
 | [`data/README.md`](data/README.md) | task-file layout, task ids and the asset convention |
 | [`data/example/README.md`](data/example/README.md) | the per-task fields and the verifier reference |
 | [`docs/README.md`](docs/README.md) | index of the documentation set |
+| [`docs/task-contribution-guide.md`](docs/task-contribution-guide.md) | start here to submit a task: three real tasks and how to fill in the form |
 | [`docs/task-authoring.md`](docs/task-authoring.md) | how to author and submit an item |
 | [`docs/failure-modes.md`](docs/failure-modes.md) | every failure mode, and the check that implements it |
 | [`docs/tools.md`](docs/tools.md) | canonical tool names, tool-surface rules and code-executor limits |
@@ -259,4 +320,4 @@ TBD
 
 ## License
 
-This project is licensed under the MIT License. See [`LICENSE`](LICENSE) for details.
+The code is licensed under the MIT License; see [`LICENSE`](LICENSE). The tasks and their files in [`data/`](data/) are licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), so anyone who reuses them must credit the SciFlawBench maintainers and contributors; see [`data/README.md`](data/README.md#license).

@@ -17,7 +17,7 @@ from agents.base import build_agent
 from core.config import DEFAULT_MAX_TRACE_TOKENS, RunConfig
 from core.events import AgentEvent, EventType, EventWatcher
 from core.task_ids import FIXED_ID_PATTERN, TaskId, hash_prompt, render_task, task_id_slug
-from evaluation.base import VerificationResult, VerifierContext, VerifierDef, run_check, wants_context
+from evaluation.base import VerificationResult, VerifierContext, VerifierDef, kwargs_problem, run_check, wants_context
 from evaluation.definitions import verifier_registry
 from evaluation.judge import LiteLLMJudge
 from evaluation.print_report import render_trace_markdown, save_markdown_report
@@ -115,6 +115,16 @@ class TaskDef(BaseModel):
                 "each failure mode needs exactly one check, labelled with it in 'failure_mode' and listed in the "
                 f"order the modes are declared (quantitative first): modes {modes}, check labels {labels}"
             )
+        return self
+
+    @model_validator(mode="after")
+    def verify_validators_can_run(self):
+        """A validator with kwargs its verifier can't take errors on every run, so the task could never pass it."""
+        for validator in self.validators:
+            if validator.name in verifier_registry.names():
+                problem = kwargs_problem(verifier_registry.get(validator.name), validator.kwargs)
+                if problem:
+                    raise ValueError(f"validator {validator.name!r} can't run with its kwargs: {problem}")
         return self
 
 

@@ -4,6 +4,7 @@
 | -------- | -------- | -------------- |
 | [`../README.md`](../README.md) | everyone | What the harness is, how to install it, how to configure and run a benchmark |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | everyone | How to contribute, in either of the two tracks (items or harness code) |
+| [`task-contribution-guide.md`](task-contribution-guide.md) | domain experts, new task authors | Start here to submit a task: what SciFlawBench is, three real tasks, how to fill in the form, and the checklist before you submit |
 | [`task-authoring.md`](task-authoring.md) | annotators / domain experts | How to submit, the scope and answer formats, the review process, and how a submission becomes a harness task |
 | [`form-import.md`](form-import.md) | maintainers | Setting up the Google Form and importing its submissions as tasks, with authors' details kept off GitHub |
 | [`failure-modes.md`](failure-modes.md) | annotators, reviewers | Every failure mode: what it measures, good design, worked example, and the check that implements it. Also how tasks declare their modes and how per-mode scores are aggregated |

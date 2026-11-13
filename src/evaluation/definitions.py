@@ -8,6 +8,29 @@ from evaluation.judge import JudgeReplyError
 
 verifier_registry = Registry("verifiers")
 
+_CODE_BLOCK_RE = re.compile(r"\s*```[A-Za-z]*\s*\n(.*?)\n?\s*```\s*", re.DOTALL)
+
+
+def _without_code_block(text: str) -> str:
+    """Models often wrap JSON in one code block; a right answer shouldn't fail its content validator on that."""
+    match = _CODE_BLOCK_RE.fullmatch(text)
+    return match.group(1) if match else text
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _json_matches(expected, got, tol: float) -> bool:
+    """Whether two JSON values are equal, with numbers anywhere inside them allowed to differ by `tol`."""
+    if isinstance(expected, dict) and isinstance(got, dict):
+        return expected.keys() == got.keys() and all(_json_matches(expected[key], got[key], tol) for key in expected)
+    if isinstance(expected, list) and isinstance(got, list):
+        return len(expected) == len(got) and all(_json_matches(a, b, tol) for a, b in zip(expected, got, strict=True))
+    if _is_number(expected) and _is_number(got):
+        return abs(expected - got) <= tol
+    return expected == got
+
 
 @verifier_registry.register("content:contains_str")
 def contains_str(got: str, expected: str, case_sensitive: bool = False) -> VerificationResult:
@@ -66,7 +89,7 @@ def paper_list_match(
     got: str, expected: list[dict], match_mode: str = "all"
 ) -> VerificationResult:  # TODO: make match_mode an StrEnum or give literal type hints
     try:
-        parsed = json.loads(got)
+        parsed = json.loads(_without_code_block(got))
         papers = parsed.get("papers", [])
     except (json.JSONDecodeError, AttributeError):
         return VerificationResult(passed=False, details="could not parse 'papers' field from output")
@@ -163,17 +186,17 @@ def scientific_notation_numeric(
 
 
 @verifier_registry.register("content:json_output")
-def verify_json_content(got: str, expected: dict) -> VerificationResult:
+def verify_json_content(got: str, expected: dict, tol: float = 0.0) -> VerificationResult:
 
     try:
-        got_json = json.loads(got)
+        got_json = json.loads(_without_code_block(got))
     except json.JSONDecodeError as e:
         return VerificationResult(passed=False, details=f"Failed to parse got: {got} \n as json: \n{str(e)}")
 
     for field, value in expected.items():
         if field not in got_json:
             return VerificationResult(passed=False, details=f"got: {got}, but expected field {field} is not included")
-        if value != got_json[field]:
+        if not _json_matches(value, got_json[field], tol):
             return VerificationResult(
                 passed=False, details=f"got: {got}, but field {field} does not match expectation:{value}"
             )

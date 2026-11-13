@@ -7,7 +7,7 @@ The single source of truth for what exists is the tool registry in [`../src/tool
 
 ## 1. Canonical tool names
 
-Every tool named in an item submission must match a name from this table. Do not invent ad hoc names — if you need a tool that is missing, ask the organizers to add it (see [section 5](#5-tools-requested-but-not-implemented-yet)).
+A task submitted through the form gets the default tools below, plus `read_file` when files are uploaded; to use another tool from this table, ask for it in a source note. Every tool named in a task line must match a name from this table. Do not invent ad hoc names — if you need a tool that is missing, ask the organizers to add it (see [section 5](#5-tools-requested-but-not-implemented-yet)).
 
 | Tool | Options (defaults) | Default tool? | Notes |
 | ---- | ------------------ | ------------- | ----- |
@@ -33,7 +33,7 @@ The default agents (`code_agent` for code-generating agents, `tool_agent` for to
 
 ## 2. Declaring tools on an item
 
-A submission's `tools` array lists the tools the agent may or must use. In the harness this becomes:
+In the harness, the tools a task's agent gets are:
 
 * the agent's **default** tool set (from the chosen `agent_id`), plus
 * anything listed in the task's **`extra_tools`**.
@@ -61,7 +61,7 @@ A submission can require a particular tool call, but the harness has no determin
 
 ## 3. Tool versioning rules
 
-* If an item depends on a specific tool or package version (e.g. `blastp`, `rdkit==2023.09`), pin the version in the item's `notes` field.
+* If an item depends on a specific tool or package version (e.g. `blastp`, `rdkit==2023.09`), state the version in a source note.
 * Items requiring Python 2.7 or other unmaintained/end-of-life packages are not accepted.
 * Where a tool has multiple major versions with different behaviour (e.g. different default coordinate epochs), state which version the ground truth assumes.
 
@@ -77,7 +77,7 @@ Practical consequences for item design:
 
 * An item that needs to read a supplied file must include the `read_file` tool, and should be written so the arithmetic is doable with the standard-library modules above (or a tool).
 * An item whose ground truth depends on a domain library is **not runnable yet**, even if the tool is listed in this document's future-work section. Note the dependency in your submission so the organizers can prioritise it.
-* Items whose deliverable is a rendered figure cannot be visually graded by the harness today; phrase the rubric around the computation, the values and the text of the trace (see [`failure-modes.md`](failure-modes.md#9-aesthetic-quality-qualitative)).
+* Items whose deliverable is a rendered figure cannot be visually graded by the harness today; phrase the rubric around the computation, the values and the text of the trace.
 
 ## 5. Tools requested but not implemented yet
 
