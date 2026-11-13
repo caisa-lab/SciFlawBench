@@ -32,13 +32,15 @@ const RESPONSES_TAB = "Responses";
 const AUTHORS_TAB = "Authors";
 const AUTHOR_COLUMNS = ["Task ID", "Full name", "Email", "Institution", "ORCID", "OpenReview"];
 
-// CREDIT and RETENTION are still to be decided with the maintainers, and must be filled in before the form goes live.
 const PRIVACY_NOTE =
   "What we store: your name, email, institution, ORCID and OpenReview handle, in a private spreadsheet. " +
   "Uploading a file also records your Google account name, which we remove from the file before publishing. " +
   "Who can see it: only the SciFlawBench maintainers. We use it to contact you and to credit you, and it is never " +
   "published with a task. What is published: if your task is accepted, its text, validators, sources and files go into " +
-  "the public SciFlawBench repository. Credit: CREDIT. How long we keep it: RETENTION.";
+  "the public SciFlawBench repository. Credit: every contributor with at least one accepted task is named in the " +
+  "acknowledgements on the SciFlawBench GitHub repository and website; co-authorship is limited to contributors " +
+  "with at least 3 accepted tasks who also help review the paper. How long we keep it: at most one month after " +
+  "SciFlawBench is published; then all your personal details are deleted from the private spreadsheet.";
 
 const PROMPT_HELP = `The exact prompt the agent gets. If a validator reads the answer automatically, say in the prompt exactly how the agent must write its final answer, with no text, units or code block around it:
 - One value: only that value, such as 12.3
