@@ -156,7 +156,7 @@ Start from [`examples/config.json`](examples/config.json), and see [`examples/RE
 utils/
 ├── build_task.ipynb   # fill in one submitted item and append it to a task file as a JSONL line
 ├── build_task.py      # the functions behind the notebook: build a task line, check it, append it
-├── form_script.gs     # the Google side of the form: creates it and handles each submission
+├── form_script.gs     # the Google side of the form: gives each submission its id and records its author privately
 └── import_form.py     # turn form submissions into task lines on a local branch
 ```
 

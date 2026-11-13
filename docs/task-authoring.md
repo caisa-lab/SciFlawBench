@@ -49,7 +49,7 @@ No AI/ML experience is required — you only need to be an expert in your domain
 
 ## 4. How To Submit
 
-Submissions are collected through one Google Form, which defines the fields you fill in: your details, the task text, up to four validators with their failure modes and correct answers, your sources, and any files. The form needs a Google account, because it accepts file uploads.
+Submissions are collected through one Google Form, which defines the fields you fill in: your details, the task text, the one to four failure modes it tests with how to judge each in your own words, your sources, and any files. The form needs a Google account, because it accepts file uploads.
 
 **Submit your items** — <https://docs.google.com/forms/d/16cx3SE1cAAC65SNGUVKTQ7GRak4t4zC9gdthe4t7s-U/viewform>
 

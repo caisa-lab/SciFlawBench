@@ -17,7 +17,6 @@ Google. Problems are reported by task id and never quote a personal detail. The 
 import argparse
 import csv
 import json
-import math
 import os
 import re
 import shutil
@@ -30,39 +29,29 @@ from pydantic import ValidationError
 from core.task_ids import FIXED_ID_PATTERN, TASK_ID_PLACEHOLDER, hash_prompt
 from core.tasks import TaskDef
 from evaluation.scoring import QUANTITATIVE_FAILURE_MODES
-from utils.build_task import REPO_ROOT, append_task, build_task, check_task, prompt_hash, read_tasks
+from utils.build_task import FAILURE_MODES, REPO_ROOT, append_task, build_task, check_task, prompt_hash, read_tasks
 
 TASK_FILE = "data/tasks/v0/tasks.jsonl"
 ASSETS_DIR = "data/tasks/assets"
 REJECTED_FILE = "data/tasks/rejected_ids.txt"
 AGENT_ID = "code_agent"
 
-MAX_VALIDATORS = 4
-MAX_SOURCES = 3
-PERSONAL_COLUMNS = ("Full name", "Email", "Institution", "ORCID", "OpenReview")
-TASK_COLUMNS = ("Task ID", "Task description", "Files")
-VALIDATOR_COLUMNS = ("failure mode", "type", "correct answer", "tolerance", "rubric")
-SOURCE_BOXES = ("URL", "note")
+# The form's questions, by their titles on the form; case and spacing don't matter. "Task ID" is added by the script.
+PERSONAL_COLUMNS = ("Full Name", "Email", "Institution", "ORCID", "OpenReview")
+TASK_COLUMNS = ("Task ID", "Task Description", "Failure Modes", "Validation", "Sources", "Data (Optional)")
+FILES_COLUMN = "Data (Optional)"
+MAX_FAILURE_MODES = 4
 
-# Which answer boxes each validator reads. Tolerance is always optional.
-VALIDATOR_BOXES = {
-    "judge:rubric": ("rubric",),
-    "content:numeric_match": ("correct answer", "tolerance"),
-    "content:numeric_within_range": ("correct answer",),
-    "content:scientific_notation": ("correct answer", "tolerance"),
-    "content:json_output": ("correct answer",),
-    "content:paper_json_match": ("correct answer",),
-    "content:exact_str_match": ("correct answer",),
-    "content:contains_str": ("correct answer",),
-    "format:json_output": (),
-}
+# Each failure mode's validation is imported as a rubric in the author's own words, for a reviewer to refine.
+RUBRIC_VALIDATOR = "judge:rubric"
+HEADING = re.compile(r"#+\s*(.+?)\s*:?")
+URL = re.compile(r"https?://\S+")
 
 # Only text, so the leak check can read everything that gets committed. PDFs and the like hide details in metadata.
 TEXT_SUFFIXES = {".csv", ".dat", ".json", ".md", ".py", ".txt"}
 MAX_TASK_BYTES = 20 * 1024 * 1024
 SAFE_FILE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 DRIVE_FILE_ID = re.compile(r"[?&]id=([\w-]+)")
-ARXIV_ID = re.compile(r"\d{4}\.\d{4,5}|[a-z-]+(\.[A-Z]{2})?/\d{7}")
 ORCID = re.compile(r"\d{4}-\d{4}-\d{4}-\d{3}[\dXx]")
 NO_ANSWER = {"-", "n/a", "na", "nil", "no", "none"}
 
@@ -81,16 +70,19 @@ SCOPES = [
 CONFIG_DIR = Path.home() / ".config" / "sciflawbench"
 
 
+def _title_key(title: str) -> str:
+    return " ".join(str(title).split()).casefold()
+
+
 def required_columns() -> list[str]:
     """Every column the response sheet must have, so a renamed form question stops the import."""
-    validators = [f"Validator {n}: {box}" for n in range(1, MAX_VALIDATORS + 1) for box in VALIDATOR_COLUMNS]
-    sources = [f"Source {n}: {box}" for n in range(1, MAX_SOURCES + 1) for box in SOURCE_BOXES]
-    return [*PERSONAL_COLUMNS, *TASK_COLUMNS, *validators, *sources]
+    return [*PERSONAL_COLUMNS, *TASK_COLUMNS]
 
 
 def parse_rows(values: list[list[str]]) -> list[dict[str, str]]:
     """
-    Turn sheet values into one dict per submission, keyed by column title.
+    Turn sheet values into one dict per submission, keyed by column title. Titles are matched ignoring case and
+    spacing; other columns, such as the timestamp, keep their own titles.
 
     Args:
         values (list[list[str]]): the header row and the rows; the Sheets API leaves out empty cells at a row's end
@@ -100,134 +92,165 @@ def parse_rows(values: list[list[str]]) -> list[dict[str, str]]:
     if not values:
         raise SystemExit("The response sheet is empty.")
     header, *rows = values
-    missing = [column for column in required_columns() if column not in header]
+    keys = [_title_key(title) for title in header]
+    wanted = {_title_key(column): column for column in required_columns()}
+    missing = [column for key, column in wanted.items() if key not in keys]
     if missing:
         raise SystemExit(f"The response sheet lacks these columns: {missing}")
-    return [dict(zip(header, row, strict=False)) for row in rows]
+    doubled = [column for key, column in wanted.items() if keys.count(key) > 1]
+    if doubled:
+        raise SystemExit(f"The response sheet has more than one column for each of these: {doubled}")
+    titles = [wanted.get(key, title) for key, title in zip(keys, header, strict=True)]
+    return [dict(zip(titles, row, strict=False)) for row in rows]
 
 
 def _box(row: dict[str, str], column: str) -> str:
     return str(row.get(column) or "").strip()
 
 
-def _number(text: str, what: str) -> float:
-    try:
-        value = float(text)
-    except ValueError:
-        raise ValueError(f"the {what} {text!r} is not a number") from None
-    if not math.isfinite(value):
-        raise ValueError(f"the {what} {text!r} is not a number")
-    return value
+def failure_mode_name(label: str) -> str:
+    """The harness name of a failure mode as the form writes it: `Correct tool calls` becomes `correct_tool_calls`."""
+    return "_".join(re.split(r"[\s_-]+", label.strip().casefold()))
 
 
-def validator_kwargs(validator: str, answer: str, tolerance: str, rubric: str) -> dict:
+def ticked_modes(answer: str) -> tuple[list[str], list[str]]:
     """
-    Build a validator's kwargs from its answer boxes on the form.
+    Read the failure modes ticked on the form, which the sheet joins with commas.
 
     Args:
-        validator (str): the verifier name
-        answer (str): the correct answer box
-        tolerance (str): the tolerance box
-        rubric (str): the rubric box
+        answer (str): the Failure Modes answer
 
-    Returns (dict): the kwargs; a ValueError says what is wrong with the boxes
+    Returns (tuple[list[str], list[str]]): the known modes, quantitative first, and the problems
     """
-    if validator not in VALIDATOR_BOXES:
-        raise ValueError(f"unknown validator {validator!r}")
-    used = VALIDATOR_BOXES[validator]
-    for box, value in (("correct answer", answer), ("tolerance", tolerance), ("rubric", rubric)):
-        if value and box not in used:
-            raise ValueError(f"the {box} box is filled in, but {validator} does not use it")
-        if not value and box in used and box != "tolerance":
-            raise ValueError(f"{validator} needs the {box} box")
+    modes = [failure_mode_name(label) for label in answer.split(",") if label.strip()]
+    problems = []
+    unknown = sum(mode not in FAILURE_MODES for mode in modes)
+    if unknown:
+        problems.append(f"{unknown} of the ticked failure modes are not ones the harness knows")
+    if not 1 <= len(modes) <= MAX_FAILURE_MODES:
+        problems.append(f"tick between 1 and {MAX_FAILURE_MODES} failure modes; {len(modes)} are ticked")
+    known = [mode for mode in modes if mode in FAILURE_MODES]
+    return sorted(known, key=lambda mode: mode not in QUANTITATIVE_FAILURE_MODES), problems
 
-    tol = _number(tolerance, "tolerance") if tolerance else None
-    if tol is not None and tol < 0:
-        raise ValueError("the tolerance must not be negative")
 
-    match validator:
-        case "judge:rubric":
-            return {"rubric": rubric}
-        case "content:numeric_match":
-            _number(answer, "correct answer")
-            return {"expected": answer, "tol": tol or 0.0}
-        case "content:numeric_within_range":
-            parts = answer.split(",")
-            if len(parts) != 2:
-                raise ValueError("the correct answer of a range must be written as: min, max")
-            minimum, maximum = _number(parts[0], "minimum"), _number(parts[1], "maximum")
-            if minimum > maximum:
-                raise ValueError("the minimum of the range is above its maximum")
-            return {"minimum": minimum, "maximum": maximum}
-        case "content:scientific_notation":
-            _number(answer, "correct answer")
-            return {"expected": answer} if tol is None else {"expected": answer, "rel_tol": tol}
-        case "content:json_output":
-            try:
-                expected = json.loads(answer)
-            except json.JSONDecodeError:
-                raise ValueError("the correct answer is not valid JSON") from None
-            if not isinstance(expected, dict):
-                raise ValueError("the correct answer must be a JSON object")
-            return {"expected": expected}
-        case "content:paper_json_match":
-            ids = [paper.removeprefix("arXiv:") for paper in re.split(r"[,\s]+", answer) if paper]
-            for paper in ids:
-                if not ARXIV_ID.fullmatch(paper):
-                    raise ValueError(f"{paper!r} is not an arXiv id without a version")
-            return {"expected": [{"arxiv_id": paper} for paper in ids]}
-        case "format:json_output":
-            return {}
-        case _:
-            return {"expected": answer}
+def parse_validation(answer: str) -> tuple[dict[str, str], list[str]]:
+    """
+    Split the Validation answer into one description per failure mode. The form asks for each as a `# MODE` line
+    followed by how to tell whether the agent made that mistake. Problems number the sections, never quoting them.
+
+    Args:
+        answer (str): the Validation answer
+
+    Returns (tuple[dict[str, str], list[str]]): each failure mode's description, in the order written, and the problems
+    """
+    sections, problems = [], []
+    for line in answer.splitlines():
+        heading = HEADING.fullmatch(line.strip())
+        if heading:
+            sections.append((failure_mode_name(heading.group(1)), []))
+        elif sections:
+            sections[-1][1].append(line)
+        elif line.strip() and not problems:
+            problems.append("validation: start each failure mode with a line such as '# Correctness'")
+
+    descriptions = {}
+    for number, (mode, lines) in enumerate(sections, start=1):
+        description = "\n".join(lines).strip()
+        if mode not in FAILURE_MODES:
+            problems.append(f"validation: the heading of section {number} is not a failure mode")
+        elif mode in descriptions:
+            problems.append(f"validation: {mode} is described twice")
+        elif not description:
+            problems.append(f"validation: {mode} has no description")
+        else:
+            descriptions[mode] = description
+    return descriptions, problems
+
+
+def _first_url(text: str) -> str:
+    """The first link in `text`, without punctuation that follows it, keeping brackets that are part of it."""
+    match = URL.search(text)
+    if not match:
+        return ""
+    url = match.group().rstrip(".,;:>")
+    while url.endswith(")") and url.count(")") > url.count("("):
+        url = url[:-1].rstrip(".,;:")
+    return url
+
+
+def parse_sources(answer: str) -> tuple[list[dict], list[str]]:
+    """
+    Split the Sources answer into sources. The form asks for each as a `* SOURCE / URL` line with `- DESCRIPTION`
+    lines below it. The first link on a `*` line is the source's URL, and the rest of that line and the lines below
+    are its note. A line with a link that isn't a `-` line also starts a source, so a plain list of links works too.
+
+    Args:
+        answer (str): the Sources answer
+
+    Returns (tuple[list[dict], list[str]]): the sources as {"url", "note"}, and the problems
+    """
+    entries, problems = [], []
+    for line in answer.splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        if text[0] in "*•" or (URL.search(text) and (text[0] not in "-–" or not entries)):
+            entries.append((text.lstrip("*•-– ").strip(), []))
+        elif entries:
+            entries[-1][1].append(text.lstrip("-–• ").strip())
+        elif not problems:
+            problems.append("sources: some text comes before the first source")
+
+    sources = []
+    for number, (head, notes) in enumerate(entries, start=1):
+        url = _first_url(head)
+        if not url:
+            problems.append(f"sources: source {number} has no link starting with http:// or https://")
+            continue
+        title = head.replace(url, "", 1).strip(" /|-–—:,;.()<>")
+        note = " ".join(note for note in notes if note)
+        sources.append({"url": url, "note": ": ".join(part for part in (title, note) if part)})
+    if not entries:
+        problems.append("sources: give at least one source, as '* URL' with '- what it confirms' below")
+    return sources, problems
 
 
 def row_to_task(row: dict[str, str]) -> tuple[dict, list[str]]:
     """
     Build the task line of one submission. The personal columns are never read here.
 
+    Each ticked failure mode gets a `judge:rubric` validator holding the author's description of it from the
+    Validation answer. A reviewer may swap one for an automatic validator, such as a numeric match, before the PR.
+
     Args:
         row (dict[str, str]): the submission
 
-    Returns (tuple[dict, list[str]]): the task, and the problems found in its validators
+    Returns (tuple[dict, list[str]]): the task, and the problems found in its answers
     """
-    problems = []
-    validators = []
-    for n in range(1, MAX_VALIDATORS + 1):
-        mode, validator, answer, tolerance, rubric = (_box(row, f"Validator {n}: {box}") for box in VALIDATOR_COLUMNS)
-        if not (mode or validator or answer or tolerance or rubric):
-            continue
-        if not (mode and validator):
-            problems.append(f"validator {n}: choose both a failure mode and a type")
-            continue
-        try:
-            validators.append(
-                {
-                    "name": validator,
-                    "kwargs": validator_kwargs(validator, answer, tolerance, rubric),
-                    "failure_mode": mode,
-                }
-            )
-        except ValueError as error:
-            problems.append(f"validator {n}: {error}")
+    modes, problems = ticked_modes(_box(row, "Failure Modes"))
+    descriptions, validation_problems = parse_validation(_box(row, "Validation"))
+    sources, source_problems = parse_sources(_box(row, "Sources"))
+    problems += validation_problems + source_problems
 
-    modes = [validator["failure_mode"] for validator in validators]
-    repeated = sorted({mode for mode in modes if modes.count(mode) > 1})
-    if repeated:
-        problems.append(f"each failure mode gets one validator, but these have several: {repeated}")
+    undescribed = [mode for mode in modes if mode not in descriptions]
+    if undescribed:
+        problems.append(f"these ticked failure modes have no validation: {undescribed}")
+    unticked = [mode for mode in descriptions if mode not in modes]
+    if unticked:
+        problems.append(f"these failure modes have a validation but are not ticked: {unticked}")
 
-    sources = [
-        {"url": _box(row, f"Source {n}: URL"), "note": _box(row, f"Source {n}: note")}
-        for n in range(1, MAX_SOURCES + 1)
-        if _box(row, f"Source {n}: URL") or _box(row, f"Source {n}: note")
+    validators = [
+        {"name": RUBRIC_VALIDATOR, "kwargs": {"rubric": descriptions[mode]}, "failure_mode": mode}
+        for mode in modes
+        if mode in descriptions
     ]
     task = build_task(
-        _box(row, "Task description"),
+        _box(row, "Task Description"),
         AGENT_ID,
         [mode for mode in modes if mode in QUANTITATIVE_FAILURE_MODES],
         [mode for mode in modes if mode not in QUANTITATIVE_FAILURE_MODES],
-        ["read_file"] if _box(row, "Files") else [],
-        sorted(validators, key=lambda validator: validator["failure_mode"] not in QUANTITATIVE_FAILURE_MODES),
+        ["read_file"] if _box(row, FILES_COLUMN) else [],
+        validators,
         sources,
         task_id=_box(row, "Task ID"),
     )
@@ -258,7 +281,7 @@ def fetch_files(row: dict[str, str], fetch) -> tuple[dict[str, bytes], list[str]
 
     Returns (tuple[dict[str, bytes], list[str], list[str]]): cleaned name to contents, the uploader names, the problems
     """
-    if not _box(row, "Files"):
+    if not _box(row, FILES_COLUMN):
         return {}, [], []
     try:
         uploads = fetch(row)
@@ -327,7 +350,7 @@ def personal_terms(row: dict[str, str], uploaders: list[str]) -> list[str]:
 
     Returns (list[str]): the terms to search for
     """
-    names = [_box(row, "Full name"), *uploaders]
+    names = [_box(row, "Full Name"), *uploaders]
     terms = [name for name in names if len(name.split()) > 1]
     terms.append(_box(row, "Email"))
     orcid = _box(row, "ORCID")
@@ -342,7 +365,7 @@ def personal_terms(row: dict[str, str], uploaders: list[str]) -> list[str]:
 
 def name_parts(row: dict[str, str], uploaders: list[str]) -> list[str]:
     """The single words of a person's names: finding one may be chance, so it only asks a maintainer to look."""
-    return [word for name in (_box(row, "Full name"), *uploaders) for word in name.split() if len(word) > 1]
+    return [word for name in (_box(row, "Full Name"), *uploaders) for word in name.split() if len(word) > 1]
 
 
 def _normalize(text: str) -> str:
@@ -545,7 +568,7 @@ def import_rows(
         if not task_id:
             reports[f"sheet row {number}"] = ["it has no task id, so the Apps Script did not run on it"]
         elif task_id in known:
-            if known[task_id].get("prompt_md5") != hash_prompt(_box(row, "Task description")):
+            if known[task_id].get("prompt_md5") != hash_prompt(_box(row, "Task Description")):
                 reports[task_id] = ["it is already imported with a different prompt; the task was not changed"]
         elif task_id not in rejected:
             problems, notes = import_submission(row, fetch, repo, terms, parts, dry_run=dry_run)
@@ -634,7 +657,7 @@ def drive_fetch(drive):
 
     def fetch(row: dict[str, str]) -> list[tuple[str, bytes]]:
         files = []
-        for file_id in DRIVE_FILE_ID.findall(_box(row, "Files")):
+        for file_id in DRIVE_FILE_ID.findall(_box(row, FILES_COLUMN)):
             name = drive.files().get(fileId=file_id, fields="name").execute()["name"]
             files.append((name, drive.files().get_media(fileId=file_id).execute()))
         return files

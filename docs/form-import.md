@@ -23,14 +23,30 @@ The maintainer pushes the branch, reviews the tasks and opens a PR to main
 
 ## Setting up the form
 
-Do this once, signed in to the Google account that will own the form. It has to be a normal Drive, because shared drives don't allow uploads. Turn on 2-step verification, and make sure more than one person can recover the account, since it holds authors' personal details.
+The form is built and edited by hand in Google Forms, by the Google account that owns it. It has to be on a normal Drive, because shared drives don't allow uploads. Turn on 2-step verification, and make sure more than one person can recover the account, since it holds authors' personal details.
 
-1. At <https://script.google.com>, create a project, paste in [`utils/form_script.gs`](../utils/form_script.gs), run `setup` and allow what it asks for. Its log gives the links to the form and the spreadsheet.
-2. Open the form. At the end of **Sources and files**, add a **File upload** question titled exactly `Files`, which Apps Script can't create. Leave "Allow only specific file types" off, and set 5 files and 10 MB per file. Uploads count against the account's Drive storage, so in **Settings → Responses** set the total to 10 GB at most.
-3. Publish the form so that anyone with the link can respond. Uploading needs a Google account.
-4. In the script's **Project Settings → Script properties**, set `MAINTAINERS` to the comma-separated addresses to notify.
+The importer reads the questions by their titles, ignoring case and spacing, so a renamed question stops it:
 
-The importer reads questions by their titles, so a renamed question stops it. To change a question, change `setup`, `import_form.py` and the form together.
+| Question | Type | What the importer makes of it |
+|---|---|---|
+| `Full Name`, `Email`, `Institution`, `ORCID`, `OpenReview` | short answer | Nothing: they go to the private Authors tab, and the importer only searches the tasks for them |
+| `Task Description` | paragraph | The prompt |
+| `Failure Modes` | checkboxes, one per failure mode, written with spaces, such as `correct tool calls` | The task's failure modes, quantitative first |
+| `Validation` | paragraph | One `judge:rubric` validator per failure mode: a `# MODE` line, and the description below it as the rubric |
+| `Sources` | paragraph | The sources: each `* ` line starts one, its first link is the URL, and the rest of the line and the `- ` lines below it are the note |
+| `Data (Optional)` | file upload | The task's files, in `data/tasks/assets/<id>/`, and the `read_file` tool |
+
+To rename a question, change the form and `PERSONAL_COLUMNS` or `TASK_COLUMNS` in `import_form.py` together, and for a question about the author, `AUTHOR_COLUMNS` in `form_script.gs` too.
+
+Then, once:
+
+1. In the form, open **Responses → Link to Sheets** and create the spreadsheet.
+2. In the spreadsheet, open **Extensions → Apps Script**, paste in [`utils/form_script.gs`](../utils/form_script.gs), run `attach` and allow what it asks for. It names the form's tab `Responses`, adds a `Task ID` column and the private **Authors** tab, keeps answers as typed, and installs the trigger that runs on each submission. Running it again changes nothing.
+3. In the file upload question, allow 5 files and 10 MB per file: the importer refuses a task whose files come to over 20 MB. Uploads count against the account's Drive storage, so in **Settings → Responses** set the total to 10 GB at most.
+4. Publish the form so that anyone with the link can respond. Uploading needs a Google account.
+5. In the script's **Project Settings → Script properties**, set `MAINTAINERS` to the comma-separated addresses to notify.
+
+A submission sent before step 2 has no task id; the importer reports it by its sheet row.
 
 Before the first real use, send a fake submission with answers such as `1/2`, `007`, `18.40` and `=2+2` and a prompt with apostrophes, backslashes, line breaks and `Λ`, and check that the import gives them back exactly as typed.
 
@@ -81,7 +97,8 @@ A submission is reported and not written when:
 
 | What it checks | Reported when |
 |---|---|
-| Validators | A box the validator needs is empty, or one it doesn't use is filled in; a correct answer doesn't fit the validator; a failure mode has two validators |
+| Failure modes and validation | Not 1 to 4 failure modes are ticked; a ticked mode has no `# MODE` section, or a section names a mode that isn't ticked or isn't a failure mode; a mode is described twice or has no description; or text comes before the first `# MODE` line |
+| Sources | No source is given, a source has no `http://` or `https://` link, or text comes before the first source |
 | The task | [`check_task`](../utils/build_task.py) or the harness's `TaskDef` loader refuses it, or its prompt is already in the task file |
 | Files | The type isn't `.csv`, `.dat`, `.json`, `.md`, `.py` or `.txt`; a file isn't UTF-8 text or can't be read; the name isn't in the prompt, or could leave the task's folder; the prompt names a file nobody uploaded; or the files come to over 20 MB |
 | Personal details | The name, email, ORCID or OpenReview handle of **anyone in the sheet**, or the uploader's Google account name, appears in the task line, a file name or a file's contents. Case, accents and spacing are ignored |
@@ -101,15 +118,16 @@ Fetch first: the import continues from the pushed `new-tasks`, so it only adds w
 
 ## Reviewing the new tasks
 
-The importer can't tell whether a validator suits its prompt, so a person has to, before the PR. Use `--export new.jsonl`, run the new tasks on a model from the `new-tasks` branch, and go through each task:
+Every validator comes in as a `judge:rubric` holding the author's own words, so the new tasks can run straight away, graded by the judge. Whether a validator suits its prompt is for a person to decide, before the PR. Use `--export new.jsonl`, run the new tasks on a model from the `new-tasks` branch, and go through each task:
 
 1. Does the prompt state one exact answer format?
-2. Did you read every failure? If the model's answer is right but a validator failed, the validator is wrong.
-3. If no run passed a validator, did you confirm by hand that a right answer would pass? Otherwise nothing shows the validator can pass at all.
+2. Is each rubric clear enough for the judge? Where an automatic validator fits better, such as a numeric match for a number, replace the rubric with it (see below).
+3. Did you read every failure? If the model's answer is right but a validator failed, the validator is wrong.
+4. If no run passed a validator, did you confirm by hand that a right answer would pass? Otherwise nothing shows the validator can pass at all.
 
 ## After the review
 
-- **If a validator should read another number:** the form's numeric validators read the last number in the answer. For another one, add `index` to the validator's kwargs in the task line, such as `0` for the first; this leaves `prompt_md5` as it is.
+- **To grade an answer automatically:** replace the rubric in the task line with a validator from the [verifier reference](../data/example/README.md), keeping its `failure_mode`, such as `{"name": "content:numeric_match", "kwargs": {"expected": "42", "tol": 0.5}, "failure_mode": "correctness"}`. Numeric validators read the last number in the answer; for another one, add `index` to the kwargs, such as `0` for the first. Changing a validator leaves `prompt_md5` as it is.
 - **To fix a submission:** correct its row in the sheet, and run the import again if it wasn't written. Once it's on the branch, edit the line and update `prompt_md5` with `python src/make_task_ids.py`.
 - **To reject a submission:** add its id to [`data/tasks/rejected_ids.txt`](../data/tasks/rejected_ids.txt), which holds ids only, so it isn't imported again. If it's on the branch, remove its line and its asset folder too. Its id isn't reused.
 - **After the merge:** PRs are squash-merged, so `new-tasks` can't simply continue. Delete the pushed branch, or your next push will be refused. The next run restarts it from main, but only if the working tree is clean and every task line, rejected id and asset on it is already in main. Otherwise it stays where it is, so a run never throws away unmerged tasks.

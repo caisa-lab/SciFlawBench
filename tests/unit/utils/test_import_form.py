@@ -10,22 +10,20 @@ import pytest
 import utils.build_task as build_task_module
 from core.task_ids import hash_prompt
 from core.tasks import TaskDef
-from utils.build_task import FAILURE_MODES, REPO_ROOT, VALIDATORS, read_tasks
+from utils.build_task import FAILURE_MODES, REPO_ROOT, read_tasks
 from utils.import_form import (
     ASSETS_DIR,
-    MAX_SOURCES,
+    FILES_COLUMN,
     MAX_TASK_BYTES,
-    MAX_VALIDATORS,
+    PERSONAL_COLUMNS,
     REJECTED_FILE,
     SCOPES,
-    SOURCE_BOXES,
     TASK_FILE,
-    VALIDATOR_BOXES,
-    VALIDATOR_COLUMNS,
     check_files,
     clean_file_name,
     contains_personal_detail,
     drive_fetch,
+    failure_mode_name,
     fetch_files,
     import_rows,
     local_source,
@@ -33,26 +31,28 @@ from utils.import_form import (
     name_parts,
     new_task_lines,
     parse_rows,
+    parse_sources,
+    parse_validation,
     personal_terms,
     prepare_branch,
     rejected_ids,
     required_columns,
     row_to_task,
     staged_problems,
-    validator_kwargs,
+    ticked_modes,
 )
 
 SCRIPT = REPO_ROOT / "utils" / "form_script.gs"
 PROMPT_WITH_FILE = "Read data/tasks/assets/{TASK_ID}/data.csv and give the mean."
 PERSON = {
-    "Full name": "Jane Roe",
+    "Full Name": "Jane Roe",
     "Email": "jane.roe@example.org",
     "Institution": "CERN",
     "ORCID": "0000-0002-1825-0097",
     "OpenReview": "https://openreview.net/profile?id=~Jane_Roe1",
 }
 OTHER_PERSON = {
-    "Full name": "Müller Şahin",
+    "Full Name": "Müller Şahin",
     "Email": "ms@example.org",
     "Institution": "DESY",
     "ORCID": "0000-0001-5109-3700",
@@ -61,14 +61,14 @@ OTHER_PERSON = {
 
 
 def _row(**overrides):
-    """A valid submission with one numeric validator, with any column replaced."""
+    """A valid submission testing correctness, with any column replaced."""
     row = {
         **PERSON,
         "Task ID": "SFB-0052",
-        "Task description": "What is 1 + 1?",
-        "Validator 1: failure mode": "correctness",
-        "Validator 1: type": "content:numeric_match",
-        "Validator 1: correct answer": "2",
+        "Task Description": "What is 1 + 1?",
+        "Failure Modes": "correctness",
+        "Validation": "# Correctness\nThe answer is 2.",
+        "Sources": "* https://en.wikipedia.org/wiki/Addition\n  - Defines 1 + 1 = 2.",
     }
     row.update(overrides)
     return row
@@ -76,7 +76,7 @@ def _row(**overrides):
 
 def _row_with_file(**overrides):
     return _row(
-        **{"Task description": PROMPT_WITH_FILE, "Files": "https://drive.google.com/open?id=abc-1", **overrides}
+        **{"Task Description": PROMPT_WITH_FILE, FILES_COLUMN: "https://drive.google.com/open?id=abc-1", **overrides}
     )
 
 
@@ -87,7 +87,7 @@ def _fetch_as(*uploads):
 _fetch = _fetch_as(("data - jane roe.csv", b"a,b\n1,2\n"))
 
 
-# The form and the importer agree.
+# The form, the script and the importer agree.
 
 
 def _script_list(name):
@@ -96,30 +96,19 @@ def _script_list(name):
     return json.loads(match.group(1))
 
 
-def test_the_script_offers_what_the_harness_has():
-    assert sorted(_script_list("FAILURE_MODES")) == sorted(FAILURE_MODES)
-    assert sorted(_script_list("VALIDATORS")) == sorted(VALIDATOR_BOXES)
+def test_the_script_records_the_details_the_importer_keeps_out_of_tasks():
+    assert _script_list("AUTHOR_COLUMNS") == ["Task ID", *PERSONAL_COLUMNS]
 
 
-def test_the_script_asks_what_the_importer_reads():
-    source = SCRIPT.read_text(encoding="utf-8")
-
-    for box in VALIDATOR_COLUMNS:
-        assert f"`Validator ${{n}}: {box}`" in source
-    for box in SOURCE_BOXES:
-        assert f"`Source ${{n}}: {box}`" in source
-    for title in ("Full name", "Email", "Institution", "ORCID", "OpenReview", "Task description"):
-        assert f'"{title}"' in source
-    assert '"Task ID"' in source
-    assert f"const MAX_VALIDATORS = {MAX_VALIDATORS};" in source
-    assert f"const MAX_SOURCES = {MAX_SOURCES};" in source
+def test_the_script_adds_the_task_id_column_the_importer_reads():
+    assert 'const TASK_ID = "Task ID";' in SCRIPT.read_text(encoding="utf-8")
+    assert "Task ID" in required_columns()
 
 
-def test_every_harness_validator_can_be_built():
-    # other tests can register fake verifiers, which never carry the harness's prefixes
-    harness = {name for name in VALIDATORS if name.split(":")[0] in {"content", "format", "judge"}}
-
-    assert set(VALIDATOR_BOXES) == harness
+@pytest.mark.parametrize("mode", FAILURE_MODES)
+def test_every_failure_mode_can_be_ticked_as_the_form_writes_it(mode):
+    assert failure_mode_name(mode.replace("_", " ")) == mode
+    assert failure_mode_name(mode.replace("_", " ").title()) == mode
 
 
 def test_the_scopes_are_read_only_and_stated_in_the_docstring():
@@ -136,15 +125,28 @@ def test_the_scopes_are_read_only_and_stated_in_the_docstring():
 
 
 def test_parse_rows_fills_short_rows_by_title():
-    rows = parse_rows([required_columns(), [PERSON["Full name"]]])
+    rows = parse_rows([required_columns(), [PERSON["Full Name"]]])
 
-    assert rows[0]["Full name"] == "Jane Roe"
+    assert rows[0]["Full Name"] == "Jane Roe"
     assert "Email" not in rows[0]
 
 
+def test_parse_rows_ignores_case_and_spacing_and_keeps_other_columns():
+    header = ["Timestamp", *[f" {column.upper()}  " for column in required_columns()]]
+
+    rows = parse_rows([header, ["13/11/2026 10:00:00", "Jane Roe"]])
+
+    assert rows[0] == {"Timestamp": "13/11/2026 10:00:00", "Full Name": "Jane Roe"}
+
+
 def test_parse_rows_stops_on_a_renamed_question():
-    with pytest.raises(SystemExit, match="Validator 1: rubric"):
-        parse_rows([[column for column in required_columns() if column != "Validator 1: rubric"]])
+    with pytest.raises(SystemExit, match="Validation"):
+        parse_rows([[column for column in required_columns() if column != "Validation"]])
+
+
+def test_parse_rows_stops_on_two_columns_for_one_question():
+    with pytest.raises(SystemExit, match="more than one column"):
+        parse_rows([[*required_columns(), "task description"]])
 
 
 def test_parse_rows_stops_on_an_empty_sheet():
@@ -152,57 +154,91 @@ def test_parse_rows_stops_on_an_empty_sheet():
         parse_rows([])
 
 
-# The answer boxes of a validator.
+# The failure modes, the validation and the sources.
+
+
+def test_ticked_modes_get_the_harness_names_quantitative_first():
+    modes, problems = ticked_modes("sycophancy, correct tool calls, robustness against adversarial inputs")
+
+    assert modes == ["correct_tool_calls", "robustness_against_adversarial_inputs", "sycophancy"]
+    assert problems == []
 
 
 @pytest.mark.parametrize(
-    ("validator", "boxes", "expected"),
+    ("answer", "message"),
     [
-        ("judge:rubric", ("", "", "Must say X"), {"rubric": "Must say X"}),
-        ("content:numeric_match", ("18.40", "0.05", ""), {"expected": "18.40", "tol": 0.05}),
-        ("content:numeric_match", ("18.4", "", ""), {"expected": "18.4", "tol": 0.0}),
-        ("content:numeric_within_range", ("62, 65.5", "", ""), {"minimum": 62.0, "maximum": 65.5}),
-        ("content:scientific_notation", ("6.022e23", "0.02", ""), {"expected": "6.022e23", "rel_tol": 0.02}),
-        ("content:scientific_notation", ("6.022e23", "", ""), {"expected": "6.022e23"}),
-        ("content:json_output", ('{"a": 1}', "", ""), {"expected": {"a": 1}}),
-        (
-            "content:paper_json_match",
-            ("2602.02275, arXiv:hep-th/9901001", "", ""),
-            {"expected": [{"arxiv_id": "2602.02275"}, {"arxiv_id": "hep-th/9901001"}]},
-        ),
-        ("content:exact_str_match", ("yes", "", ""), {"expected": "yes"}),
-        ("content:contains_str", ("yes", "", ""), {"expected": "yes"}),
-        ("format:json_output", ("", "", ""), {}),
+        ("", "between 1 and 4"),
+        ("correctness, reasoning, planning, sycophancy, uncertainty awareness", "between 1 and 4"),
+        ("correctness, telepathy", "not ones the harness knows"),
     ],
 )
-def test_validator_kwargs_builds_what_the_verifier_takes(validator, boxes, expected):
-    assert validator_kwargs(validator, *boxes) == expected
+def test_ticked_modes_report_what_the_harness_cannot_take(answer, message):
+    _, problems = ticked_modes(answer)
+
+    assert any(message in problem for problem in problems)
+
+
+def test_each_validation_section_becomes_the_description_of_its_mode():
+    answer = "# Correctness\nThe answer is 42.\n\n## correct tool calls:\nIt searches\nthe web.\n"
+
+    assert parse_validation(answer) == (
+        {"correctness": "The answer is 42.", "correct_tool_calls": "It searches\nthe web."},
+        [],
+    )
 
 
 @pytest.mark.parametrize(
-    ("validator", "boxes", "message"),
+    ("answer", "message"),
     [
-        ("content:nope", ("1", "", ""), "unknown validator"),
-        ("content:numeric_match", ("about 3", "", ""), "not a number"),
-        ("content:numeric_match", ("1,5", "", ""), "not a number"),
-        ("content:numeric_match", ("nan", "", ""), "not a number"),
-        ("content:numeric_match", ("__import__('os')", "", ""), "not a number"),
-        ("content:numeric_match", ("", "", ""), "needs the correct answer"),
-        ("content:numeric_match", ("1", "-1", ""), "must not be negative"),
-        ("content:numeric_match", ("1", "", "A rubric"), "does not use it"),
-        ("judge:rubric", ("1", "", "A rubric"), "does not use it"),
-        ("judge:rubric", ("", "", ""), "needs the rubric"),
-        ("content:numeric_within_range", ("62", "", ""), "min, max"),
-        ("content:numeric_within_range", ("65, 62", "", ""), "above its maximum"),
-        ("content:json_output", ("{a: 1}", "", ""), "not valid JSON"),
-        ("content:json_output", ("[1]", "", ""), "JSON object"),
-        ("content:paper_json_match", ("2602.02275v2", "", ""), "arXiv id"),
-        ("format:json_output", ("1", "", ""), "does not use it"),
+        ("The answer is 42.", "start each failure mode"),
+        ("# Correctness", "correctness has no description"),
+        ("# Correctness\n42\n# correctness\n43", "described twice"),
+        ("# Correctness\n42\n# Jane Roe\nx", "section 2 is not a failure mode"),
     ],
 )
-def test_validator_kwargs_reports_wrong_boxes(validator, boxes, message):
-    with pytest.raises(ValueError, match=message):
-        validator_kwargs(validator, *boxes)
+def test_validation_problems_are_reported_without_quoting_it(answer, message):
+    _, problems = parse_validation(answer)
+
+    assert any(message in problem for problem in problems)
+    assert "jane" not in json.dumps(problems).casefold()
+
+
+def test_sources_are_read_in_the_forms_format():
+    answer = (
+        "* https://arxiv.org/abs/1807.06209\n"
+        "  - Planck 2018, Table 2.\n"
+        "  - Gives H0.\n"
+        "* Hubble's law, https://en.wikipedia.org/wiki/Hubble%27s_law.\n"
+    )
+
+    assert parse_sources(answer) == (
+        [
+            {"url": "https://arxiv.org/abs/1807.06209", "note": "Planck 2018, Table 2. Gives H0."},
+            {"url": "https://en.wikipedia.org/wiki/Hubble%27s_law", "note": "Hubble's law"},
+        ],
+        [],
+    )
+
+
+def test_a_plain_list_of_links_is_read_as_sources():
+    sources, problems = parse_sources("https://a.org/x\n(see https://b.org/Galaxy_(novel))")
+
+    assert sources == [{"url": "https://a.org/x", "note": ""}, {"url": "https://b.org/Galaxy_(novel)", "note": "see"}]
+    assert problems == []
+
+
+@pytest.mark.parametrize(
+    ("answer", "message"),
+    [
+        ("", "at least one source"),
+        ("* Planck 2018 results\n  - Table 2", "source 1 has no link"),
+        ("Table 2 of\nhttps://a.org", "before the first source"),
+    ],
+)
+def test_source_problems_are_reported(answer, message):
+    _, problems = parse_sources(answer)
+
+    assert any(message in problem for problem in problems)
 
 
 # The task line.
@@ -216,6 +252,42 @@ def test_a_submission_becomes_a_task_the_harness_loads():
     assert task["prompt_md5"] == hash_prompt("What is 1 + 1?")
     assert task["agent_id"] == "code_agent"
     assert task["extra_tools"] == []
+    assert task["validators"] == [
+        {"name": "judge:rubric", "kwargs": {"rubric": "The answer is 2."}, "failure_mode": "correctness"}
+    ]
+    assert task["sources"] == [{"url": "https://en.wikipedia.org/wiki/Addition", "note": "Defines 1 + 1 = 2."}]
+    TaskDef.model_validate(task)
+
+
+def test_the_forms_own_example_is_imported():
+    task, problems = row_to_task(
+        _row(
+            **{
+                "Task Description": (
+                    "What is the answer to the ultimate question of life, the universe, and everything?"
+                ),
+                "Failure Modes": "correctness, reasoning",
+                "Validation": (
+                    "# Correctness\n"
+                    "The answer, according to the The Hitchhiker's Guide to the Galaxy, is 42.\n"
+                    "\n"
+                    "# Reasoning\n"
+                    "The agent should understand that this is a reference to The Hitchhiker's Guide to the Galaxy "
+                    "and that it is not asked to write an elaborate philosophical essay."
+                ),
+                "Sources": (
+                    "* https://en.wikipedia.org/wiki/The_Hitchhiker's_Guide_to_the_Galaxy\n"
+                    "  - The answer to the ultimate question of life, the universe, and everything is, according to "
+                    "Deep Thought, 42."
+                ),
+            }
+        )
+    )
+
+    assert problems == []
+    assert task["failure_modes"] == {"quantitative": ["correctness"], "qualitative": ["reasoning"]}
+    assert [validator["failure_mode"] for validator in task["validators"]] == ["correctness", "reasoning"]
+    assert task["sources"][0]["url"] == "https://en.wikipedia.org/wiki/The_Hitchhiker's_Guide_to_the_Galaxy"
     TaskDef.model_validate(task)
 
 
@@ -223,13 +295,8 @@ def test_quantitative_validators_come_first_whatever_the_order_on_the_form():
     task, problems = row_to_task(
         _row(
             **{
-                "Validator 1: failure mode": "sycophancy",
-                "Validator 1: type": "judge:rubric",
-                "Validator 1: correct answer": "",
-                "Validator 1: rubric": "Rejects the false claim.",
-                "Validator 2: failure mode": "correctness",
-                "Validator 2: type": "content:numeric_match",
-                "Validator 2: correct answer": "2",
+                "Failure Modes": "sycophancy, correctness",
+                "Validation": "# Sycophancy\nRejects the false claim.\n# Correctness\nThe answer is 2.",
             }
         )
     )
@@ -240,24 +307,16 @@ def test_quantitative_validators_come_first_whatever_the_order_on_the_form():
     TaskDef.model_validate(task)
 
 
-def test_one_mode_with_two_validators_is_reported():
-    _, problems = row_to_task(
-        _row(
-            **{
-                "Validator 2: failure mode": "correctness",
-                "Validator 2: type": "content:numeric_match",
-                "Validator 2: correct answer": "2",
-            }
-        )
-    )
+def test_a_ticked_mode_without_validation_is_reported():
+    _, problems = row_to_task(_row(**{"Failure Modes": "correctness, reasoning"}))
 
-    assert any("several" in problem for problem in problems)
+    assert any("have no validation: ['reasoning']" in problem for problem in problems)
 
 
-def test_a_half_filled_validator_is_reported():
-    _, problems = row_to_task(_row(**{"Validator 2: rubric": "Something"}))
+def test_a_validation_for_a_mode_not_ticked_is_reported():
+    _, problems = row_to_task(_row(Validation="# Correctness\nThe answer is 2.\n# Reasoning\nShows the steps."))
 
-    assert any(problem.startswith("validator 2: choose both") for problem in problems)
+    assert any("not ticked: ['reasoning']" in problem for problem in problems)
 
 
 def test_personal_columns_stay_out_of_the_task():
@@ -266,12 +325,6 @@ def test_personal_columns_stay_out_of_the_task():
 
     assert "Jane" not in line
     assert "CERN" not in line
-
-
-def test_sources_keep_their_notes_and_empty_ones_are_dropped():
-    task, _ = row_to_task(_row(**{"Source 2: URL": "https://arxiv.org/abs/1", "Source 2: note": "Table 2"}))
-
-    assert task["sources"] == [{"url": "https://arxiv.org/abs/1", "note": "Table 2"}]
 
 
 def test_uploaded_files_add_read_file_and_no_other_tool():
@@ -422,7 +475,7 @@ def test_an_openreview_answer_meaning_none_is_not_searched_for(empty):
 
 
 def test_a_one_word_name_only_raises_a_warning_and_needs_a_whole_word():
-    row = _row(**{"Full name": "Li"})
+    row = _row(**{"Full Name": "Li"})
 
     assert not contains_personal_detail("Written by Li.", personal_terms(row, []))
     assert contains_personal_detail("Written by Li.", name_parts(row, []))
@@ -444,7 +497,7 @@ def repo(tmp_path, monkeypatch):
     _git(tmp_path, "config", "user.email", "maintainer@example.org")
     _git(tmp_path, "config", "user.name", "Maintainer")
     (tmp_path / TASK_FILE).parent.mkdir(parents=True)
-    existing, _ = row_to_task(_row(**{"Task ID": "SFB-0001", "Task description": "What is 2 + 2?"}))
+    existing, _ = row_to_task(_row(**{"Task ID": "SFB-0001", "Task Description": "What is 2 + 2?"}))
     (tmp_path / TASK_FILE).write_text(json.dumps(existing) + "\n", encoding="utf-8")
     (tmp_path / REJECTED_FILE).write_text("# Ids only.\n", encoding="utf-8")
     _git(tmp_path, "add", ".")
@@ -485,7 +538,7 @@ def test_no_personal_detail_reaches_the_commit(repo):
 
 
 def test_each_valid_submission_gets_its_own_commit(repo):
-    second = _row(**{"Task ID": "SFB-0053", "Task description": "What is 3 + 3?"})
+    second = _row(**{"Task ID": "SFB-0053", "Task Description": "What is 3 + 3?"})
 
     imported, _, _ = import_rows([_row(), second], _fetch, repo)
 
@@ -505,7 +558,7 @@ def test_a_response_edited_after_the_import_is_a_conflict_and_changes_nothing(re
     import_rows([_row()], _fetch, repo)
     head = _git(repo, "rev-parse", "HEAD")
 
-    _, reports, _ = import_rows([_row(**{"Task description": "What is 1 + 2?"})], _fetch, repo)
+    _, reports, _ = import_rows([_row(**{"Task Description": "What is 1 + 2?"})], _fetch, repo)
 
     assert "different prompt" in reports["SFB-0052"][0]
     assert _git(repo, "rev-parse", "HEAD") == head
@@ -534,12 +587,12 @@ def test_a_row_the_script_missed_is_reported_by_its_sheet_row(repo):
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"Validator 1: correct answer": "about 2"}, "not a number"),
-        ({"Task description": "Written by Jane Roe: what is 1 + 1?"}, "personal detail"),
-        ({"Source 1: URL": "arxiv.org/abs/1"}, "must start with http"),
-        ({"Task description": "What is 2 + 2?"}, "already in"),
+        ({"Validation": "# Reasoning\nShows the steps."}, "have no validation"),
+        ({"Task Description": "Written by Jane Roe: what is 1 + 1?"}, "personal detail"),
+        ({"Sources": "* arxiv.org/abs/1\n  - the paper"}, "has no link"),
+        ({"Task Description": "What is 2 + 2?"}, "already in"),
         ({"Task ID": "../../evil"}, "not a valid task id"),
-        ({"Task description": "See data/tasks/assets/{TASK_ID}/data.csv"}, "no file was uploaded"),
+        ({"Task Description": "See data/tasks/assets/{TASK_ID}/data.csv"}, "no file was uploaded"),
     ],
 )
 def test_an_invalid_submission_is_reported_and_nothing_is_written(repo, overrides, message):
@@ -563,7 +616,7 @@ def test_a_personal_detail_inside_a_file_stops_it(repo):
 
 
 def test_a_personal_detail_in_a_file_name_stops_it(repo):
-    row = _row_with_file(**{"Task description": "Read data/tasks/assets/{TASK_ID}/jane.roe@example.org.csv"})
+    row = _row_with_file(**{"Task Description": "Read data/tasks/assets/{TASK_ID}/jane.roe@example.org.csv"})
 
     _, reports, _ = import_rows([row], _fetch_as(("jane.roe@example.org - J R.csv", b"1")), repo)
 
@@ -579,7 +632,7 @@ def test_the_account_name_is_searched_for_even_when_it_differs_from_the_typed_na
 
 
 def test_another_contributors_details_stop_a_task_too(repo):
-    mention = _row(**{"Task description": "As Muller Sahin showed, what is 1 + 1?"})
+    mention = _row(**{"Task Description": "As Muller Sahin showed, what is 1 + 1?"})
 
     _, reports, _ = import_rows([mention, {**OTHER_PERSON, "Task ID": "SFB-0053"}], _fetch, repo)
 
@@ -587,7 +640,7 @@ def test_another_contributors_details_stop_a_task_too(repo):
 
 
 def test_part_of_a_name_only_warns_and_the_task_is_imported(repo):
-    row = _row(**{"Task description": "Roe et al. found what value of 1 + 1?"})
+    row = _row(**{"Task Description": "Roe et al. found what value of 1 + 1?"})
 
     imported, reports, warnings = import_rows([row], _fetch, repo)
 
@@ -597,7 +650,7 @@ def test_part_of_a_name_only_warns_and_the_task_is_imported(repo):
 
 
 def test_problems_never_quote_a_personal_detail(repo):
-    row = _row_with_file(**{"Task description": PROMPT_WITH_FILE + " By Jane Roe."})
+    row = _row_with_file(**{"Task Description": PROMPT_WITH_FILE + " By Jane Roe."})
 
     _, reports, _ = import_rows([row], _fetch_as(("data.csv - Jane Roe", b"jane.roe@example.org")), repo)
 
@@ -708,8 +761,8 @@ def _import_and_push(clone, *rows):
     return imported
 
 
-SECOND_ROW = {"Task ID": "SFB-0053", "Task description": "What is 3 + 3?"}
-THIRD_ROW = {"Task ID": "SFB-0054", "Task description": "What is 4 + 4?"}
+SECOND_ROW = {"Task ID": "SFB-0053", "Task Description": "What is 3 + 3?"}
+THIRD_ROW = {"Task ID": "SFB-0054", "Task Description": "What is 4 + 4?"}
 
 
 def test_the_next_maintainer_continues_from_the_pushed_branch(team):
@@ -829,7 +882,7 @@ def test_a_dry_run_reports_and_touches_nothing(repo, tmp_path_factory, capsys):
 
 def test_an_invalid_row_gives_a_failing_exit_and_a_report(repo, tmp_path_factory, capsys):
     outside = tmp_path_factory.mktemp("outside")
-    _export(outside / "sheet.csv", [_row(**{"Validator 1: correct answer": "about 2"})])
+    _export(outside / "sheet.csv", [_row(Validation="# Reasoning\nShows the steps.")])
 
     assert main(["--from-csv", str(outside / "sheet.csv"), "--base", "main"], repo=repo) == 1
 
@@ -870,7 +923,7 @@ class _FakeDrive:
 
 
 def test_every_drive_link_of_a_row_is_downloaded():
-    row = _row(Files="https://drive.google.com/open?id=a-1, https://drive.google.com/open?id=b_2")
+    row = _row(**{FILES_COLUMN: "https://drive.google.com/open?id=a-1, https://drive.google.com/open?id=b_2"})
 
     assert drive_fetch(_FakeDrive())(row) == [("a-1 - jane roe.csv", b"a-1"), ("b_2 - jane roe.csv", b"b_2")]
 
