@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -365,3 +366,73 @@ def test_records_from_before_failure_kinds_are_left_out_as_before():
 
     assert (board.model_failures, board.unscored_runs, board.infrastructure_failures) == (0, 1, [])
     assert board.overall.score == 1.0
+
+
+# Per-task scores.
+
+
+def test_each_task_gets_its_mean_score_its_runs_and_a_score_per_mode():
+    records = [
+        _run("b", 1, ("correctness", True), ("sycophancy", False), qualitative=["sycophancy"]),
+        _run("b", 2, ("correctness", True), ("sycophancy", True), qualitative=["sycophancy"]),
+        _run("a", 1, ("correctness", False)),
+    ]
+
+    tasks = aggregate_scores(records).tasks
+
+    assert list(tasks) == ["a", "b"]
+    assert (tasks["b"].score, tasks["b"].runs) == (0.75, [0.5, 1.0])
+    assert tasks["b"].failure_modes == {"correctness": 1.0, "sycophancy": 0.5}
+    assert (tasks["a"].score, tasks["a"].failure_modes) == (0.0, {"correctness": 0.0})
+
+
+def test_the_overall_score_is_the_mean_of_the_task_scores():
+    records = [
+        _run("a", 1, ("correctness", True)),
+        _run("a", 2, ("correctness", False)),
+        _run("b", 1, ("correctness", True)),
+    ]
+
+    board = aggregate_scores(records)
+
+    assert board.overall.score == pytest.approx(sum(task.score for task in board.tasks.values()) / len(board.tasks))
+
+
+def test_a_task_scores_model_failures_as_zero_and_counts_excluded_runs():
+    error = "openai.APIConnectionError: Connection error."
+    records = [
+        _run("a", 1, ("correctness", True), ("sycophancy", True), qualitative=["sycophancy"]),
+        _run("a", 2, failure="model", qualitative=["sycophancy"]),
+        _run("a", 3, failure="infrastructure", error=error, qualitative=["sycophancy"]),
+    ]
+
+    task = aggregate_scores(records).tasks["a"]
+
+    assert (task.score, task.runs, task.excluded) == (0.5, [1.0, 0.0], 1)
+    assert task.failure_modes == {"correctness": 0.5, "sycophancy": 0.5}
+
+
+def test_a_task_whose_runs_were_all_excluded_has_no_score():
+    task = aggregate_scores([_run("a", 1, failure="infrastructure", error="boom")]).tasks["a"]
+
+    assert (task.score, task.runs, task.failure_modes, task.excluded) == (None, [], {}, 1)
+
+
+def test_unlabelled_checks_give_every_declared_mode_the_run_score():
+    record = {**_record(True, False, quantitative=["correctness"], qualitative=["sycophancy"]), "id": "a"}
+
+    assert aggregate_scores([record]).tasks["a"].failure_modes == {"correctness": 0.5, "sycophancy": 0.5}
+
+
+def test_task_scores_reach_scores_json_and_the_summary():
+    board = aggregate_scores([_run("SFB-0026", 1, ("correctness", True)), _run("SFB-0026", 2, ("correctness", False))])
+
+    payload = json.loads(json.dumps(scoreboard_to_dict(board)))
+
+    assert payload["tasks"]["SFB-0026"] == {
+        "score": 0.5,
+        "runs": [1.0, 0.0],
+        "failure_modes": {"correctness": 0.5},
+        "excluded": 0,
+    }
+    assert re.search(r"SFB-0026\s+0\.500\s+\[1/2\]", format_scoreboard(board))
