@@ -732,3 +732,30 @@ def test_an_infrastructure_failure_is_left_out_and_run_again_on_resume(tmp_path,
     scores = json.loads((tmp_path / "logs" / "scores.json").read_text())
     assert (scores["runs"], scores["unscored_runs"], scores["infrastructure_failures"]) == (1, 0, [])
     assert scores["overall"]["score"] == 1.0
+
+
+def test_a_run_with_a_failed_tool_call_is_scored_and_listed(tmp_path, monkeypatch):
+    setup_basics(tmp_path, monkeypatch)
+    monkeypatch.setenv("ENABLE_TEST_FAKES", "1")
+    task_file = tmp_path / "tasks.jsonl"
+    task_file.write_text(
+        '{"task_id": 1, "task": "say hi", "agent_id": "fake_agent",'
+        ' "extra_tools": [{"tool_name": "fake_broken_search"}],'
+        ' "failure_modes": {"quantitative": ["correctness"]},'
+        ' "validators": [{"name": "content:contains_str", "kwargs": {"expected": "done"},'
+        ' "failure_mode": "correctness"}]}\n'
+    )
+    # the agent's first step calls the search, which fails; its second step answers anyway
+    responses = ["```python\nfake_broken_search(query='hi')\n```", "```python\nfinal_answer('done')\n```"]
+    model = ModelConfig(
+        provider="fake_model", model_id="fake", api_key_env="FAKE_KEY", extra_kwargs={"responses": responses}
+    )
+
+    RuntimeManager(_resume_conf(tmp_path, task_file, model=model)).run()
+
+    record = json.loads((tmp_path / "logs" / "aggregate_results.jsonl").read_text())
+    assert record["tool_failures"] == {"fake_broken_search": 1}
+    scores = json.loads((tmp_path / "logs" / "scores.json").read_text())
+    assert scores["overall"]["score"] == 1.0  # scored as usual
+    assert scores["tool_failures"] == [{"task_id": 1, "repetition": 1, "tools": {"fake_broken_search": 1}}]
+    assert "task 1.1: fake_broken_search x1" in (tmp_path / "logs" / "run_summary.log").read_text()
