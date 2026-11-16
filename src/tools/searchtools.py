@@ -1,7 +1,10 @@
+import fcntl
 import re
+import tempfile
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from typing import Literal
 
 import requests
@@ -224,11 +227,13 @@ class ArxivSearchTool(Tool):
     TIMEOUT_S = 10
     MAX_RESULTS = 5
     # arXiv asks API clients for at most one request every 3 seconds. When asked more often it answers 429 (or 503),
-    # or refuses the connection, so such a request is tried again after a pause, up to ATTEMPTS times in all.
+    # refuses the connection, or answers slowly, so such a request is tried again after a pause, up to ATTEMPTS times.
     MIN_INTERVAL_S = 3.0
     ATTEMPTS = 3
     RETRY_WAIT_S = 5.0
-    _last_request = float("-inf")  # shared by every arxiv_search tool of this process
+    # Every task runs in its own process, so the 3 s are kept across processes: the time of the last request is kept
+    # in this file, which a request locks while it waits for its turn.
+    LOCK_FILE = Path(tempfile.gettempdir()) / "sciflawbench_arxiv_search.lock"
 
     _ARXIV_ID = re.compile(r"(?<![\w.])(\d{4}\.\d{4,5}|[a-z][a-z-]*(?:\.[A-Z]{2})?/\d{7})(?:v\d+)?(?![\w.])")
     _WORD = re.compile(r"\w[\w.-]*")
@@ -306,10 +311,20 @@ class ArxivSearchTool(Tool):
         raise error
 
     def _keep_interval(self) -> None:
-        wait = self.MIN_INTERVAL_S - (time.monotonic() - ArxivSearchTool._last_request)
-        if wait > 0:
-            time.sleep(wait)
-        ArxivSearchTool._last_request = time.monotonic()
+        """Wait until MIN_INTERVAL_S have passed since the last request of any arxiv_search tool on this machine."""
+        with open(self.LOCK_FILE, "a+", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)  # released when the file is closed
+            lock.seek(0)
+            try:
+                last = float(lock.read().strip())
+            except ValueError:  # a new or unreadable file: no request yet
+                last = float("-inf")
+            wait = self.MIN_INTERVAL_S - (time.time() - last)
+            if wait > 0:
+                time.sleep(wait)
+            lock.seek(0)
+            lock.truncate()
+            lock.write(repr(time.time()))
 
     def _entries(self, feed: str) -> list[ET.Element]:
         entries = ET.fromstring(feed).findall(self._ATOM + "entry")

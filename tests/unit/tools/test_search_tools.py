@@ -1,6 +1,8 @@
 import os
 import socket
+import tempfile
 import time
+from pathlib import Path
 
 import pytest
 import requests
@@ -141,6 +143,7 @@ class _FakeReply:
 
 def _offline_arxiv(monkeypatch, *replies):
     """An arxiv_search tool whose requests get `replies` in turn, with no waiting; returns it and the requests made."""
+    monkeypatch.setattr(ArxivSearchTool, "LOCK_FILE", Path(tempfile.mkdtemp()) / "arxiv.lock")
     monkeypatch.setattr(ArxivSearchTool, "MIN_INTERVAL_S", 0)
     monkeypatch.setattr(ArxivSearchTool, "RETRY_WAIT_S", 0)
     requests_made, queue = [], list(replies)
@@ -222,16 +225,20 @@ def test_arxiv_search_reports_a_query_arxiv_rejects(monkeypatch):
     assert "Error searching for Arxiv papers: incorrect id format" in res
 
 
-def test_arxiv_search_keeps_three_seconds_between_requests(monkeypatch):
-    clock, waits = [100.0], []
-    monkeypatch.setattr("tools.searchtools.time.monotonic", lambda: clock[0])
+def test_arxiv_search_keeps_three_seconds_between_the_requests_of_all_tools(monkeypatch, tmp_path):
+    """Every task runs in its own process, so the gap is kept through a shared lock file, not in memory."""
+    clock, waits = [1000.0], []
+    monkeypatch.setattr("tools.searchtools.time.time", lambda: clock[0])
     monkeypatch.setattr("tools.searchtools.time.sleep", waits.append)
-    monkeypatch.setattr(ArxivSearchTool, "_last_request", float("-inf"))
-    tool = ArxivSearchTool(operator="test_suite")
-    tool._keep_interval()
+    monkeypatch.setattr(ArxivSearchTool, "LOCK_FILE", tmp_path / "arxiv.lock")
+    first, second = ArxivSearchTool(operator="test_suite"), ArxivSearchTool(operator="test_suite")
+    first._keep_interval()
     clock[0] += 1.0
-    tool._keep_interval()
+    second._keep_interval()  # another tool, as in another task's process
+    clock[0] += 10.0
+    first._keep_interval()  # more than 3 s later: no wait
     assert waits == [2.0]
+    assert float((tmp_path / "arxiv.lock").read_text()) == 1011.0
 
 
 def test_arxiv_query_sets_a_timeout(monkeypatch):
@@ -259,6 +266,7 @@ def test_arxiv_gives_up_on_a_server_that_never_answers(monkeypatch):
         monkeypatch.setattr(ArxivSearchTool, "BASE_URL", f"http://{host}:{port}/api/query")
         monkeypatch.setattr(ArxivSearchTool, "TIMEOUT_S", 0.5)
         monkeypatch.setattr(ArxivSearchTool, "MIN_INTERVAL_S", 0)
+        monkeypatch.setattr(ArxivSearchTool, "LOCK_FILE", Path(tempfile.mkdtemp()) / "arxiv.lock")
 
         start = time.monotonic()
         res = ArxivSearchTool(operator="test_suite").forward(query="LLM alignment", sort="relevance", fromYear=2020)
