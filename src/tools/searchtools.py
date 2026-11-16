@@ -227,7 +227,8 @@ class ArxivSearchTool(Tool):
     TIMEOUT_S = 10
     MAX_RESULTS = 5
     # arXiv asks API clients for at most one request every 3 seconds. When asked more often it answers 429 (or 503),
-    # refuses the connection, or answers slowly, so such a request is tried again after a pause, up to ATTEMPTS times.
+    # refuses the connection, or answers too slowly, so such a request is tried again after a pause, up to ATTEMPTS
+    # times in all: at worst about ATTEMPTS * TIMEOUT_S + (ATTEMPTS - 1) * RETRY_WAIT_S seconds, 40 s by default.
     MIN_INTERVAL_S = 3.0
     ATTEMPTS = 3
     RETRY_WAIT_S = 5.0
@@ -290,7 +291,7 @@ class ArxivSearchTool(Tool):
         return []
 
     def _fetch(self, params: dict) -> list[ET.Element]:
-        """The entries of one API request, tried again while arXiv is busy or refuses it."""
+        """The entries of one API request, tried again while arXiv is busy, refuses it or does not answer in time."""
         error: Exception = RuntimeError("no request made")
         for attempt in range(self.ATTEMPTS):
             if attempt:
@@ -300,7 +301,7 @@ class ArxivSearchTool(Tool):
                 resp = requests.get(
                     self.BASE_URL, params=params, headers={"User-Agent": self.user_agent}, timeout=self.TIMEOUT_S
                 )
-            except requests.ConnectionError as exc:  # e.g. a refused connection; a timeout is not tried again
+            except (requests.ConnectionError, requests.Timeout) as exc:  # a refused connection, or no answer in time
                 error = exc
                 continue
             if resp.status_code in self._RETRY_STATUSES:

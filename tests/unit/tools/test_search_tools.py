@@ -248,13 +248,22 @@ def test_arxiv_query_sets_a_timeout(monkeypatch):
     assert requests_made[0]["timeout"] == ArxivSearchTool.TIMEOUT_S == 10
 
 
+def test_arxiv_search_tries_a_request_that_timed_out_again(monkeypatch):
+    tool, requests_made = _offline_arxiv(
+        monkeypatch, requests.exceptions.ReadTimeout("read timed out"), _FakeReply(_feed(RAITHEL))
+    )
+    res = tool.forward(query="1803.07687", sort="relevance", fromYear=1991)
+    assert "id: 1803.07687" in res
+    assert len(requests_made) == 2
+
+
 def test_arxiv_timeout_returns_an_error(monkeypatch):
-    """A timeout reaches the agent as an error message instead of raising, and is not tried again."""
-    tool, requests_made = _offline_arxiv(monkeypatch, requests.exceptions.Timeout("read timed out"))
+    """When every try times out, the agent gets an error message instead of an exception."""
+    tool, requests_made = _offline_arxiv(monkeypatch, *[requests.exceptions.Timeout("read timed out")] * 3)
     res = tool.forward(query="LLM alignment", sort="relevance", fromYear=2020)
     assert "Error searching for Arxiv papers" in res
     assert "read timed out" in res
-    assert len(requests_made) == 1
+    assert len(requests_made) == 3
 
 
 def test_arxiv_gives_up_on_a_server_that_never_answers(monkeypatch):
@@ -267,13 +276,14 @@ def test_arxiv_gives_up_on_a_server_that_never_answers(monkeypatch):
         monkeypatch.setattr(ArxivSearchTool, "TIMEOUT_S", 0.5)
         monkeypatch.setattr(ArxivSearchTool, "MIN_INTERVAL_S", 0)
         monkeypatch.setattr(ArxivSearchTool, "LOCK_FILE", Path(tempfile.mkdtemp()) / "arxiv.lock")
+        monkeypatch.setattr(ArxivSearchTool, "RETRY_WAIT_S", 0)
 
         start = time.monotonic()
         res = ArxivSearchTool(operator="test_suite").forward(query="LLM alignment", sort="relevance", fromYear=2020)
         elapsed = time.monotonic() - start
 
     assert "Error searching for Arxiv papers" in res
-    assert elapsed < 5
+    assert elapsed < 5  # three tries of 0.5 s each
 
 
 @pytest.mark.live
