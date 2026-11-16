@@ -11,7 +11,7 @@ A task submitted through the form gets the default tools below, plus `read_file`
 
 | Tool | Options (defaults) | Default tool? | Notes |
 | ---- | ------------------ | ------------- | ----- |
-| `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests/second), `engine` (`"duckduckgo"`) | yes | SerpAPI replaces DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is not `"duckduckgo"` |
+| `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests/second), `engine` (`"duckduckgo"`), `attempts` (`3`), `retry_wait_s` (`3.0`) | yes | SerpAPI replaces DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is not `"duckduckgo"`. The DuckDuckGo search scrapes search engines that often block it, so a failed search is tried up to `attempts` times, `retry_wait_s` seconds apart, before the agent sees the error |
 | `wikipedia_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | yes | The operator email is sent in the request `User-Agent`, as the Wikimedia API policy asks. The query is matched against article *titles*; a partial or slightly misspelled title is **auto-resolved** to the closest matching article |
 | `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | yes | Searches arXiv papers through [ArcXiv](https://arcxiv.org), an independent service run by coder.company, not the official arXiv API, so the queries and the operator email (in the `User-Agent`) go to that service. Fuzzy-matches titles/abstracts and returns ids, links and abstracts. 10 s timeout |
 | `visit_webpage` | – | yes | Fetches a URL (20 s timeout) and returns the page as Markdown. Its internal 40 000-character limit is disabled so the artifact output cap governs and an oversized page is spilled rather than lost |

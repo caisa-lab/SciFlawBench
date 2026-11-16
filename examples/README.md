@@ -104,7 +104,7 @@ Each entry **replaces** the keyword arguments of that tool for the whole run (ra
 
 | Tool | Options (defaults) | Notes |
 | ---- | ------------------ | ----- |
-| `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests per second), `engine` (`"duckduckgo"`) | SerpAPI is used instead of DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is not `"duckduckgo"` |
+| `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests per second), `engine` (`"duckduckgo"`), `attempts` (`3`), `retry_wait_s` (`3.0`) | SerpAPI is used instead of DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is not `"duckduckgo"`. A failed DuckDuckGo search is tried up to `attempts` times, `retry_wait_s` seconds apart |
 | `wikipedia_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | The operator email is placed in the request `User-Agent`, as the Wikimedia API policy asks |
 | `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | Searches arXiv papers through [ArcXiv](https://arcxiv.org), an independent service (not the official arXiv API), with a 10 s timeout; the operator email is placed in the request `User-Agent` |
 | `visit_webpage` | – | Fetches a URL and returns the page as Markdown |

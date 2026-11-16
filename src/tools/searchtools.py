@@ -1,3 +1,4 @@
+import logging
 import re
 import time
 import unicodedata
@@ -5,7 +6,43 @@ from typing import Literal
 
 import requests
 from serpapi import Client
-from smolagents import Tool, WikipediaSearchTool
+from smolagents import DuckDuckGoSearchTool, Tool, WikipediaSearchTool
+
+logger = logging.getLogger(__name__)
+
+
+class RetryingDuckDuckGoSearchTool(DuckDuckGoSearchTool):
+    """smolagents' DuckDuckGo search, tried again when a search fails.
+
+    The search goes through `ddgs`, which scrapes search engines in a random order without an API key. The engines
+    often block it, so about half of single searches fail at random, while the same query usually works a few seconds
+    later. A failed search is therefore tried up to `attempts` times, `retry_wait_s` seconds apart; if the last try
+    fails too, its error is raised as before, so the agent sees it.
+    """
+
+    def __init__(
+        self,
+        max_results: int = 10,
+        rate_limit: float | None = 1.0,
+        attempts: int = 3,
+        retry_wait_s: float = 3.0,
+        **kwargs,
+    ):
+        super().__init__(max_results=max_results, rate_limit=rate_limit, **kwargs)
+        if attempts < 1:
+            raise ValueError(f"attempts must be at least 1, got {attempts}")
+        self.attempts = attempts
+        self.retry_wait_s = retry_wait_s
+
+    def forward(self, query: str) -> str:
+        for attempt in range(1, self.attempts + 1):
+            try:
+                return super().forward(query)
+            except Exception as exc:
+                if attempt == self.attempts:
+                    raise
+                logger.info("web_search try %d of %d failed (%s); trying again", attempt, self.attempts, exc)
+                time.sleep(self.retry_wait_s)
 
 
 class SerpAPISearchTool(Tool):

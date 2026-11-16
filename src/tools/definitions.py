@@ -1,7 +1,7 @@
 import logging
 import os
 
-from smolagents import DuckDuckGoSearchTool, VisitWebpageTool
+from smolagents import VisitWebpageTool
 
 from core.registry import Registry
 from tools.base import WrappedTool
@@ -12,6 +12,7 @@ from tools.numerics import NumericsTool
 from tools.searchtools import (
     ArxivSearchTool,
     ImprovedWikipediaSearchTool,
+    RetryingDuckDuckGoSearchTool,
     SerpAPISearchTool,
 )
 from tools.significance import SignificanceTool
@@ -42,8 +43,15 @@ def make_read_file_tool(watcher, max_rows: int = DEFAULT_MAX_ROWS, max_chars: in
 
 @tool_registry.register("web_search")
 def make_web_search_tool(
-    watcher, max_results: int = 8, rate_limit: float = 1.0, engine: str = "duckduckgo"
+    watcher,
+    max_results: int = 8,
+    rate_limit: float = 1.0,
+    engine: str = "duckduckgo",
+    attempts: int = 3,
+    retry_wait_s: float = 3.0,
 ) -> WrappedTool:
+    # `attempts` and `retry_wait_s` apply to the DuckDuckGo search only: it fails about half the time at random
+    # (issue #59), so a failed search is tried again before the agent sees an error.
     if os.environ.get("SERPAPI_KEY", None) is not None and engine != "duckduckgo":
         key = os.environ["SERPAPI_KEY"]
         kwargs = {"max_results": 8, "rate_limit": 1.0, "engine": engine, "api_key": key}
@@ -54,7 +62,8 @@ def make_web_search_tool(
                 serpapi "
     )
 
-    return WrappedTool(wrapped_tool=DuckDuckGoSearchTool(max_results, rate_limit), watcher=watcher)
+    search = RetryingDuckDuckGoSearchTool(max_results, rate_limit, attempts=attempts, retry_wait_s=retry_wait_s)
+    return WrappedTool(wrapped_tool=search, watcher=watcher)
 
 
 @tool_registry.register("wikipedia_search")
