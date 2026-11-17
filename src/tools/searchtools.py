@@ -1,7 +1,11 @@
+import fcntl
 import logging
 import re
+import tempfile
 import time
 import unicodedata
+import xml.etree.ElementTree as ET
+from pathlib import Path
 from typing import Literal
 
 import requests
@@ -233,14 +237,14 @@ class ImprovedWikipediaSearchTool(WikipediaSearchTool):
 class ArxivSearchTool(Tool):
     name = "arxiv_search"
     description = (
-        "Tool which searches arxiv for papers that have abstracts or titles that fuzzily match the provided query."
-        "returns a list of possible article titles along with their time of publication, arXiv ID, abstract, and a link"
-        "to where the markdown of the article is hosted if it exists."
+        "Searches arXiv for papers whose title, authors or abstract match the query, or looks papers up by their "
+        "arXiv ID (e.g. 1803.07687). Returns up to five papers with their time of publication, arXiv ID, title, "
+        "abstract and a link to the paper's arXiv page."
     )
     inputs = {
         "query": {
             "type": "string",
-            "description": "",
+            "description": "Words from a title, author names or a topic, or one or more arXiv IDs",
         },
         "sort": {
             "type": "string",
@@ -253,12 +257,31 @@ class ArxivSearchTool(Tool):
     }
     output_type = "string"
 
-    # ArcXiv (https://arcxiv.org) is an independent search service over arXiv metadata, run by coder.company; it is
-    # not arXiv's own API (which returns Atom XML and has no endpoint like this one), so the domain is not a typo.
-    BASE_URL = "https://arcxiv.org/api/agent/search"
-    USER_AGENT_BASE = "AgenticArXivSearch/0.1 (https://github.com/ivzx04/SciFlawBench; "
+    # arXiv's own API, which answers in Atom XML (https://info.arxiv.org/help/api/user-manual.html)
+    BASE_URL = "https://export.arxiv.org/api/query"
+    USER_AGENT_BASE = "AgenticArXivSearch/0.1 (https://github.com/caisa-lab/SciFlawBench; "
     # Seconds to wait for a response, so a slow or unreachable server cannot stall a run.
     TIMEOUT_S = 10
+    MAX_RESULTS = 5
+    # arXiv asks API clients for at most one request every 3 seconds. When asked more often it answers 429 (or 503),
+    # refuses the connection, or answers too slowly, so such a request is tried again after a pause, up to ATTEMPTS
+    # times in all: at worst about ATTEMPTS * TIMEOUT_S + (ATTEMPTS - 1) * RETRY_WAIT_S seconds, 40 s by default.
+    MIN_INTERVAL_S = 3.0
+    ATTEMPTS = 3
+    RETRY_WAIT_S = 5.0
+    # Every task runs in its own process, so the 3 s are kept across processes: the time of the last request is kept
+    # in this file, which a request locks while it waits for its turn.
+    LOCK_FILE = Path(tempfile.gettempdir()) / "sciflawbench_arxiv_search.lock"
+
+    _ARXIV_ID = re.compile(r"(?<![\w.])(\d{4}\.\d{4,5}|[a-z][a-z-]*(?:\.[A-Z]{2})?/\d{7})(?:v\d+)?(?![\w.])")
+    _WORD = re.compile(r"\w[\w.-]*")
+    _SORTS = {
+        "relevance": ("relevance", "descending"),
+        "newest": ("submittedDate", "descending"),
+        "oldest": ("submittedDate", "ascending"),
+    }
+    _ATOM = "{http://www.w3.org/2005/Atom}"
+    _RETRY_STATUSES = (429, 500, 502, 503, 504)
 
     def __init__(self, operator: str):
         super().__init__()
@@ -269,30 +292,92 @@ class ArxivSearchTool(Tool):
         return "**Results:** \n[\n" + ", \n\n".join(data) + "\n]"
 
     def _make_request(self, query: str, sortType: Literal["relevance", "newest", "oldest"], fromYear: int) -> list[str]:
-
-        params = {
-            "q": query,
-            "sort": sortType,
-            "fromYear": fromYear,
-            "pageSize": 5,  # approximately how many results actually show up
-        }
-
+        """The papers for a query, formatted; an arXiv ID in the query is looked up, other words are searched."""
         try:
-            resp = requests.get(
-                self.BASE_URL, params=params, headers={"User-Agent": self.user_agent}, timeout=self.TIMEOUT_S
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            ids = self._ARXIV_ID.findall(query)
+            if ids:
+                entries = self._fetch({"id_list": ",".join(ids), "max_results": self.MAX_RESULTS})
+            else:
+                entries = self._search(query, sortType, fromYear)
         except Exception as e:
             return [f"Error searching for Arxiv papers: {e}"]
+        return [self._format(entry) for entry in entries]
 
-        if "hits" not in data:
+    def _search(self, query: str, sortType: str, fromYear: int) -> list[ET.Element]:
+        """Papers matching all the words, in the asked order; failing that, any of them, the most relevant first."""
+        words = [word.strip(".-") for word in self._WORD.findall(query)]
+        words = [word for word in words if len(word) > 1]
+        if not words:
             return []
+        try:
+            year = int(fromYear)
+        except (TypeError, ValueError):
+            year = 1991
+        since = f" AND submittedDate:[{year}01010000 TO 299912312359]" if year > 1991 else ""
+        sort_by, order = self._SORTS.get(sortType, self._SORTS["relevance"])
+        tries = [(" AND ", sort_by, order)]
+        if len(words) > 1:
+            # sorted by relevance: sorted by date, papers matching one common word would come first
+            tries.append((" OR ", "relevance", "descending"))
+        for joiner, sort_by, order in tries:
+            terms = joiner.join(f"all:{word}" for word in words)
+            params = {"search_query": f"({terms}){since}", "sortBy": sort_by, "sortOrder": order}
+            entries = self._fetch({**params, "max_results": self.MAX_RESULTS})
+            if entries:
+                return entries
+        return []
 
-        data_list = [
-            f"{item['publishedAt']} - id: {item['arxivId']} - **title:** {item['title']}  \n **abstract:**"
-            f"{item['abstract']} \n article markdown: {item['links'].get('markdown', '**NOT AVAILABLE**')}"
-            for item in data["hits"]
-        ]
+    def _fetch(self, params: dict) -> list[ET.Element]:
+        """The entries of one API request, tried again while arXiv is busy, refuses it or does not answer in time."""
+        error: Exception = RuntimeError("no request made")
+        for attempt in range(self.ATTEMPTS):
+            if attempt:
+                time.sleep(self.RETRY_WAIT_S)
+            self._keep_interval()
+            try:
+                resp = requests.get(
+                    self.BASE_URL, params=params, headers={"User-Agent": self.user_agent}, timeout=self.TIMEOUT_S
+                )
+            except (requests.ConnectionError, requests.Timeout) as exc:  # a refused connection, or no answer in time
+                error = exc
+                continue
+            if resp.status_code in self._RETRY_STATUSES:
+                error = requests.HTTPError(f"{resp.status_code} from the arXiv API (it is busy or limiting requests)")
+                continue
+            resp.raise_for_status()
+            return self._entries(resp.text)
+        raise error
 
-        return data_list
+    def _keep_interval(self) -> None:
+        """Wait until MIN_INTERVAL_S have passed since the last request of any arxiv_search tool on this machine."""
+        with open(self.LOCK_FILE, "a+", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)  # released when the file is closed
+            lock.seek(0)
+            try:
+                last = float(lock.read().strip())
+            except ValueError:  # a new or unreadable file: no request yet
+                last = float("-inf")
+            wait = self.MIN_INTERVAL_S - (time.time() - last)
+            if wait > 0:
+                time.sleep(wait)
+            lock.seek(0)
+            lock.truncate()
+            lock.write(repr(time.time()))
+
+    def _entries(self, feed: str) -> list[ET.Element]:
+        entries = ET.fromstring(feed).findall(self._ATOM + "entry")
+        for entry in entries:
+            if "/api/errors" in self._text(entry, "id"):  # arXiv reports a malformed query as an entry
+                raise ValueError(self._text(entry, "summary") or "the arXiv API rejected the query")
+        return entries
+
+    def _text(self, entry: ET.Element, tag: str) -> str:
+        node = entry.find(self._ATOM + tag)
+        return " ".join((node.text or "").split()) if node is not None else ""
+
+    def _format(self, entry: ET.Element) -> str:
+        arxiv_id = re.sub(r"v\d+$", "", self._text(entry, "id").rsplit("/abs/", 1)[-1])
+        return (
+            f"{self._text(entry, 'published')} - id: {arxiv_id} - **title:** {self._text(entry, 'title')}  \n"
+            f" **abstract:**{self._text(entry, 'summary')} \n link: https://arxiv.org/abs/{arxiv_id}"
+        )
