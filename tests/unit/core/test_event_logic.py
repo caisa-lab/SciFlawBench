@@ -2,7 +2,7 @@ import pytest
 from smolagents import Model, Tool
 from smolagents.models import ChatMessage, MessageRole
 
-from core.events import AgentEvent, EventType, EventWatcher
+from core.events import AgentEvent, EventType, EventWatcher, failed_tool_calls
 from models.base import WrappedModel
 from tools.base import WrappedTool
 
@@ -93,3 +93,48 @@ def test_watcher_records_error_and_reraises():
 
     assert captured[-1].event_type == EventType.Errored
     assert "simulated failure" in captured[-1].payload["error"]
+
+
+def _event(kind, name):
+    return AgentEvent(event_type=EventType(kind), task_id=1, payload={"name": name}, timestamp=0.0)
+
+
+def test_failed_tool_calls_counts_the_errors_of_each_tool():
+    events = [
+        _event("model_call_start", "fake-model"),
+        _event("tool_call_start", "web_search"),
+        _event("error", "web_search"),
+        _event("tool_call_start", "web_search"),
+        _event("tool_call_end", "web_search"),
+        _event("tool_call_start", "visit_webpage"),
+        _event("error", "visit_webpage"),
+        _event("tool_call_start", "web_search"),
+        _event("error", "web_search"),
+        _event("error", "fake-model"),  # the model's error, not a tool's
+    ]
+
+    assert failed_tool_calls(events) == {"visit_webpage": 1, "web_search": 2}
+
+
+def test_failed_tool_calls_is_empty_when_every_tool_call_worked():
+    events = [_event("tool_call_start", "web_search"), _event("tool_call_end", "web_search")]
+    assert failed_tool_calls(events) == {}
+
+
+def test_a_tool_that_raises_is_counted_through_the_watcher():
+    class BrokenSearchTool(Tool):
+        name = "broken_search"
+        description = "a search tool that always fails"
+        inputs = {"query": {"type": "string", "description": "search query"}}
+        output_type = "string"
+
+        def forward(self, query: str) -> str:
+            raise RuntimeError("No results found.")
+
+    captured: list[AgentEvent] = []
+    tool = WrappedTool(wrapped_tool=BrokenSearchTool(), watcher=EventWatcher(task_id=1, sink=captured.append))
+
+    with pytest.raises(RuntimeError):
+        tool.forward(query="GW190521")
+
+    assert failed_tool_calls(captured) == {"broken_search": 1}

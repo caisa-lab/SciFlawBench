@@ -7,9 +7,11 @@ from pathlib import Path
 import pytest
 import requests
 
+from tools.definitions import tool_registry
 from tools.searchtools import (
     ArxivSearchTool,
     ImprovedWikipediaSearchTool,
+    RetryingDuckDuckGoSearchTool,
     SerpAPISearchTool,
 )
 
@@ -304,3 +306,61 @@ def test_serp_search():
     res = search_tool.forward(query="LLM alignment")
     print(res)
     assert "**Search Results:**" in res
+
+
+def _flaky_search(monkeypatch, fails, attempts=3, retry_wait_s=0):
+    """A web search whose first `fails` searches raise and whose next one answers, without the network."""
+    tool = RetryingDuckDuckGoSearchTool(attempts=attempts, retry_wait_s=retry_wait_s, rate_limit=None)
+    queries = []
+
+    def fake_text(query, max_results):
+        queries.append(query)
+        if len(queries) <= fails:
+            raise RuntimeError("No results found.")
+        return [{"title": "GW190521", "href": "https://example.org/gw190521", "body": "A heavy black-hole merger."}]
+
+    monkeypatch.setattr(tool.ddgs, "text", fake_text)
+    return tool, queries
+
+
+def test_web_search_tries_a_failed_search_again(monkeypatch):
+    tool, queries = _flaky_search(monkeypatch, fails=2)
+    res = tool.forward("GW190521 masses")
+    assert "[GW190521](https://example.org/gw190521)" in res
+    assert queries == ["GW190521 masses"] * 3
+
+
+def test_web_search_raises_the_last_error_when_every_try_fails(monkeypatch):
+    tool, queries = _flaky_search(monkeypatch, fails=5)
+    with pytest.raises(RuntimeError, match="No results found"):
+        tool.forward("GW190521 masses")
+    assert len(queries) == 3
+
+
+def test_web_search_with_one_attempt_does_not_try_again(monkeypatch):
+    tool, queries = _flaky_search(monkeypatch, fails=1, attempts=1)
+    with pytest.raises(RuntimeError):
+        tool.forward("GW190521 masses")
+    assert len(queries) == 1
+
+
+def test_web_search_waits_between_tries(monkeypatch):
+    waits = []
+    monkeypatch.setattr("tools.searchtools.time.sleep", waits.append)
+    tool, _ = _flaky_search(monkeypatch, fails=2, retry_wait_s=3.0)
+    tool.forward("GW190521 masses")
+    assert waits == [3.0, 3.0]
+
+
+def test_web_search_needs_at_least_one_attempt():
+    with pytest.raises(ValueError, match="attempts"):
+        RetryingDuckDuckGoSearchTool(attempts=0)
+
+
+def test_web_search_options_reach_the_tool(monkeypatch):
+    monkeypatch.delenv("SERPAPI_KEY", raising=False)
+    wrapped = tool_registry.get("web_search")(watcher=None, attempts=5, retry_wait_s=0.5)
+    assert isinstance(wrapped._wrapped, RetryingDuckDuckGoSearchTool)
+    assert (wrapped._wrapped.attempts, wrapped._wrapped.retry_wait_s) == (5, 0.5)
+    default = tool_registry.get("web_search")(watcher=None)._wrapped
+    assert (default.attempts, default.retry_wait_s, default.max_results) == (3, 3.0, 8)

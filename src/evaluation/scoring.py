@@ -148,6 +148,9 @@ class ScoreBoard:
     model_failures: int = 0  # runs that raised or were killed because of the model, scored 0
     # the runs to re-run: {"task_id", "repetition", "error_type", "error"} for each infrastructure failure
     infrastructure_failures: list[dict[str, Any]] = field(default_factory=list)
+    # the runs in which a tool call raised an error, scored as usual: {"task_id", "repetition", "tools"}, with
+    # "tools" the failed calls per tool, e.g. {"web_search": 2}
+    tool_failures: list[dict[str, Any]] = field(default_factory=list)
     tasks: dict[str, TaskScore] = field(default_factory=dict)  # by task id, sorted
 
     def as_dict(self) -> dict[str, Any]:
@@ -156,6 +159,7 @@ class ScoreBoard:
             "unscored_runs": self.unscored_runs,
             "model_failures": self.model_failures,
             "infrastructure_failures": self.infrastructure_failures,
+            "tool_failures": self.tool_failures,
             "overall": self.overall.as_dict(),
             "families": {name: score.as_dict() for name, score in self.families.items()},
             "failure_modes": {name: score.as_dict() for name, score in self.failure_modes.items()},
@@ -250,7 +254,8 @@ def aggregate_scores(records: Iterable[Mapping[str, Any]]) -> ScoreBoard:
     overall and for every mode and family it declares. A run that failed because of the
     infrastructure is left out of every score and listed in `infrastructure_failures`; any other
     run without checks is left out too, since there is nothing to grade (as are runs recorded before
-    `failure_kind` existed that raised or were killed).
+    `failure_kind` existed that raised or were killed). A run in which a tool call raised an error
+    is scored as usual and listed in `tool_failures`, since its answer may rest on a failed lookup.
 
     Each task counts once: a bucket's score is the mean over its tasks of each task's mean over its
     runs. A repetition recorded more than once (re-run after resuming) counts with its last record.
@@ -270,8 +275,13 @@ def aggregate_scores(records: Iterable[Mapping[str, Any]]) -> ScoreBoard:
     unscored = 0
     model_failures = 0
     infrastructure_failures: list[dict[str, Any]] = []
+    tool_failures: list[dict[str, Any]] = []
     for index, record in enumerate(_last_record_of_each_repetition(records)):
         runs += 1
+        if record.get("tool_failures"):
+            tool_failures.append(
+                {"task_id": record.get("id"), "repetition": record.get("repetition"), "tools": record["tool_failures"]}
+            )
         # A record without an id (legacy runs, tests) is its own task.
         task = record.get("id", f"record {index}")
         tally = tasks.setdefault(str(task), _TaskTally())
@@ -326,6 +336,7 @@ def aggregate_scores(records: Iterable[Mapping[str, Any]]) -> ScoreBoard:
         unscored_runs=unscored,
         model_failures=model_failures,
         infrastructure_failures=infrastructure_failures,
+        tool_failures=tool_failures,
         tasks={task: tally.build() for task, tally in sorted(tasks.items())},
     )
 
@@ -464,6 +475,15 @@ def format_scoreboard(board: ScoreBoard) -> str:
             lines.append(
                 f"    task {failure['task_id']}.{failure['repetition']}: {failure['error_type']}: {failure['error']}"
             )
+
+    if board.tool_failures:
+        lines.append("")
+        lines.append(
+            "  runs with a failed tool call, scored as usual (re-run them if the failure may have changed the answer)"
+        )
+        for failure in board.tool_failures:
+            tools = ", ".join(f"{name} x{count}" for name, count in failure["tools"].items())
+            lines.append(f"    task {failure['task_id']}.{failure['repetition']}: {tools}")
 
     return "\n".join(lines)
 

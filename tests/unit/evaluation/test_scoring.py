@@ -368,6 +368,32 @@ def test_records_from_before_failure_kinds_are_left_out_as_before():
     assert board.overall.score == 1.0
 
 
+def test_a_run_with_a_failed_tool_call_is_scored_and_listed():
+    failed_search = _run("a", 1, ("correctness", True))
+    failed_search["tool_failures"] = {"web_search": 2, "arxiv_search": 1}
+    records = [failed_search, _run("a", 2, ("correctness", False)), _run("b", 1, ("correctness", True))]
+
+    board = aggregate_scores(records)
+
+    assert board.overall.score == 0.75  # scored as usual: task a 0.5, task b 1
+    assert board.tool_failures == [{"task_id": "a", "repetition": 1, "tools": {"web_search": 2, "arxiv_search": 1}}]
+    assert board.as_dict()["tool_failures"] == board.tool_failures
+    assert "task a.1: web_search x2, arxiv_search x1" in format_scoreboard(board)
+
+
+def test_no_tool_failures_section_when_every_tool_call_worked():
+    board = aggregate_scores([_run("a", 1, ("correctness", True))])
+    assert board.tool_failures == []
+    assert "failed tool call" not in format_scoreboard(board)
+
+
+def test_a_repetition_run_again_keeps_the_tool_failures_of_its_last_record():
+    first = _run("a", 1, ("correctness", False))
+    first["tool_failures"] = {"web_search": 1}
+    board = aggregate_scores([first, _run("a", 1, ("correctness", True))])
+    assert board.tool_failures == []
+
+
 # Per-task scores.
 
 

@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agents.base import build_agent
 from core.config import DEFAULT_MAX_TRACE_TOKENS, RunConfig
-from core.events import AgentEvent, EventType, EventWatcher
+from core.events import AgentEvent, EventType, EventWatcher, failed_tool_calls
 from core.task_ids import FIXED_ID_PATTERN, TaskId, hash_prompt, render_task, task_id_slug
 from evaluation.base import VerificationResult, VerifierContext, VerifierDef, kwargs_problem, run_check, wants_context
 from evaluation.definitions import verifier_registry
@@ -150,6 +150,9 @@ class TaskResult(BaseModel):
     # again on resume), and the class of the error that decided it
     failure_kind: str | None = None
     error_type: str | None = None
+    # how many calls of each tool raised an error during the run, e.g. {"web_search": 2}; such a run is scored as
+    # usual, but its answer may rest on a lookup that failed, so the run summary lists it
+    tool_failures: dict[str, int] = Field(default_factory=dict)
 
 
 #: Errors that are not the model's fault. litellm's errors subclass the matching openai ones, so these cover both
@@ -333,6 +336,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
         to_log["failure_kind"] = timeout_failure_kind(events[-1] if events else None)
         to_log["error_type"] = "task_timeout"
         to_log["time_elapsed"] = time.time() - start_time  # type: ignore
+        to_log["tool_failures"] = failed_tool_calls(events)
 
         res_queue.put({"task_id": task.task_id, "repetition": task.repetition, "kind": "killed", "to_log": to_log})
         try:
@@ -403,6 +407,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
         else:
             failure_kind, error_type = INFRASTRUCTURE_FAILURE, type(exc).__name__
 
+    tool_failures = failed_tool_calls(events)
     result = TaskResult(
         task_id=task.task_id,
         prompt_md5=task.prompt_md5,
@@ -416,6 +421,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
         check_results=verifier_results,
         failure_kind=failure_kind,
         error_type=error_type,
+        tool_failures=tool_failures,
     )
 
     if not output_dir.exists():
@@ -440,6 +446,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
     to_log["error"] = error_str
     to_log["failure_kind"] = failure_kind
     to_log["error_type"] = error_type
+    to_log["tool_failures"] = tool_failures
 
     res_queue.put(
         {

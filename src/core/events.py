@@ -1,5 +1,6 @@
 import time
 import traceback
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -80,3 +81,20 @@ class EventWatcher:
         except Exception:
             self._emit(event_type=EventType("error"), payload={"name": name, "error": traceback.format_exc()})
             raise
+
+
+def failed_tool_calls(events: list[AgentEvent]) -> dict[str, int]:
+    """How many calls of each tool raised an error during one run: {tool name: failed calls}, tools that never failed
+    left out.
+
+    A tool's error is told apart from the model's or the agent's by its name, which is the name of a tool that was
+    called. A tool that reports a problem in its answer instead of raising (e.g. "Error searching for Arxiv papers")
+    is not counted.
+    """
+    tools = {event.payload.get("name") for event in events if event.event_type == EventType.ToolCallStart}
+    failed = Counter(
+        event.payload.get("name")
+        for event in events
+        if event.event_type == EventType.Errored and event.payload.get("name") in tools
+    )
+    return dict(sorted(failed.items()))
