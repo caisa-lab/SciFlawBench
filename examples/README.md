@@ -189,7 +189,7 @@ logs/<timestamp>/
 ├── run_manifest.sha256      # checksum of the manifest above
 ├── aggregate_results.jsonl  # one line per finished run
 ├── run_summary.log          # human-readable progress log (ends with the score block)
-├── scores.json              # overall, per-family and per-failure-mode scores
+├── scores.json              # overall, per-family, per-failure-mode and per-task scores
 └── results/
     ├── <task_id>.jsonl      # one line per repetition
     ├── <task_id>_traces/<task_id>.<repetition>.json         # same record, indented for reading
