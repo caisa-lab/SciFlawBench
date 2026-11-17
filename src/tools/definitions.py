@@ -47,11 +47,13 @@ def make_web_search_tool(
     max_results: int = 8,
     rate_limit: float = 1.0,
     engine: str = "duckduckgo",
-    attempts: int = 3,
-    retry_wait_s: float = 3.0,
+    attempts: int = 4,
+    retry_wait_s: float | list[float] = (5.0, 15.0, 30.0),
+    min_interval_s: float = 2.0,
 ) -> WrappedTool:
-    # `attempts` and `retry_wait_s` apply to the DuckDuckGo search only: it fails about half the time at random
-    # (issue #59), so a failed search is tried again before the agent sees an error.
+    # `attempts`, `retry_wait_s` and `min_interval_s` apply to the DuckDuckGo search only: it fails often at random,
+    # more so when several agents search at once (issues #59, #60), so all agents keep one pace and a failed search is
+    # tried again, with growing waits, before the agent sees an error.
     if os.environ.get("SERPAPI_KEY", None) is not None and engine != "duckduckgo":
         key = os.environ["SERPAPI_KEY"]
         kwargs = {"max_results": 8, "rate_limit": 1.0, "engine": engine, "api_key": key}
@@ -62,7 +64,9 @@ def make_web_search_tool(
                 serpapi "
     )
 
-    search = RetryingDuckDuckGoSearchTool(max_results, rate_limit, attempts=attempts, retry_wait_s=retry_wait_s)
+    search = RetryingDuckDuckGoSearchTool(
+        max_results, rate_limit, attempts=attempts, retry_wait_s=retry_wait_s, min_interval_s=min_interval_s
+    )
     return WrappedTool(wrapped_tool=search, watcher=watcher)
 
 

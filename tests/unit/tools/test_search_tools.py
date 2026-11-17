@@ -310,7 +310,8 @@ def test_serp_search():
 
 def _flaky_search(monkeypatch, fails, attempts=3, retry_wait_s=0):
     """A web search whose first `fails` searches raise and whose next one answers, without the network."""
-    tool = RetryingDuckDuckGoSearchTool(attempts=attempts, retry_wait_s=retry_wait_s, rate_limit=None)
+    monkeypatch.setattr(RetryingDuckDuckGoSearchTool, "LOCK_FILE", Path(tempfile.mkdtemp()) / "web_search.lock")
+    tool = RetryingDuckDuckGoSearchTool(attempts=attempts, retry_wait_s=retry_wait_s, rate_limit=None, min_interval_s=0)
     queries = []
 
     def fake_text(query, max_results):
@@ -359,8 +360,55 @@ def test_web_search_needs_at_least_one_attempt():
 
 def test_web_search_options_reach_the_tool(monkeypatch):
     monkeypatch.delenv("SERPAPI_KEY", raising=False)
-    wrapped = tool_registry.get("web_search")(watcher=None, attempts=5, retry_wait_s=0.5)
+    wrapped = tool_registry.get("web_search")(watcher=None, attempts=5, retry_wait_s=0.5, min_interval_s=1.0)
     assert isinstance(wrapped._wrapped, RetryingDuckDuckGoSearchTool)
-    assert (wrapped._wrapped.attempts, wrapped._wrapped.retry_wait_s) == (5, 0.5)
+    assert (wrapped._wrapped.attempts, wrapped._wrapped.retry_waits_s, wrapped._wrapped.min_interval_s) == (
+        5,
+        [0.5],
+        1.0,
+    )
     default = tool_registry.get("web_search")(watcher=None)._wrapped
-    assert (default.attempts, default.retry_wait_s, default.max_results) == (3, 3.0, 8)
+    assert (default.attempts, default.retry_waits_s, default.min_interval_s, default.max_results) == (
+        4,
+        [5.0, 15.0, 30.0],
+        2.0,
+        8,
+    )
+
+
+def test_web_search_waits_longer_before_each_new_try(monkeypatch):
+    waits = []
+    monkeypatch.setattr("tools.searchtools.time.sleep", waits.append)
+    tool, queries = _flaky_search(monkeypatch, fails=3, attempts=4, retry_wait_s=[5.0, 15.0, 30.0])
+    tool.forward("GW190521 masses")
+    assert waits == [5.0, 15.0, 30.0]
+    assert len(queries) == 4
+
+
+def test_web_search_keeps_its_last_wait_when_tries_outnumber_the_waits(monkeypatch):
+    waits = []
+    monkeypatch.setattr("tools.searchtools.time.sleep", waits.append)
+    tool, _ = _flaky_search(monkeypatch, fails=3, attempts=4, retry_wait_s=[5.0, 15.0])
+    tool.forward("GW190521 masses")
+    assert waits == [5.0, 15.0, 15.0]
+
+
+def test_web_search_needs_at_least_one_wait():
+    with pytest.raises(ValueError, match="retry_wait_s"):
+        RetryingDuckDuckGoSearchTool(retry_wait_s=[])
+
+
+def test_web_searches_of_all_agents_keep_one_pace(monkeypatch, tmp_path):
+    """Every task runs in its own process, so the gap is kept through a shared lock file, not in memory."""
+    clock, waits = [1000.0], []
+    monkeypatch.setattr("tools.searchtools.time.time", lambda: clock[0])
+    monkeypatch.setattr("tools.searchtools.time.sleep", waits.append)
+    monkeypatch.setattr(RetryingDuckDuckGoSearchTool, "LOCK_FILE", tmp_path / "web_search.lock")
+    first, second = (RetryingDuckDuckGoSearchTool(rate_limit=None) for _ in range(2))
+    answer = [{"title": "GW190521", "href": "https://example.org/gw190521", "body": "A heavy merger."}]
+    for tool in (first, second):
+        monkeypatch.setattr(tool.ddgs, "text", lambda query, max_results: answer)
+    first.forward("GW190521")
+    clock[0] += 0.5
+    second.forward("GW190521")  # another agent, half a second later: waits for the rest of the 2 s
+    assert waits == [1.5]
