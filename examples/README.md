@@ -106,7 +106,7 @@ Each entry **replaces** the keyword arguments of that tool for the whole run (ra
 | ---- | ------------------ | ----- |
 | `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests per second), `engine` (`"duckduckgo"`), `attempts` (`3`), `retry_wait_s` (`3.0`) | SerpAPI is used instead of DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is not `"duckduckgo"`. A failed DuckDuckGo search is tried up to `attempts` times, `retry_wait_s` seconds apart |
 | `wikipedia_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | The operator email is placed in the request `User-Agent`, as the Wikimedia API policy asks |
-| `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | Searches arXiv through arXiv's own API, with a 10 s timeout and 3 s between the requests of all agents on the machine; an arXiv ID in the query is looked up directly. The operator email is placed in the request `User-Agent` |
+| `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | Searches arXiv through arXiv's own API, with a 30 s timeout and 3 s between the requests of all agents on the machine; an arXiv ID in the query is looked up directly. The operator email is placed in the request `User-Agent` |
 | `visit_webpage` | – | Fetches a URL and returns the page as Markdown |
 | `read_file` | `max_rows` (`50`), `max_chars` (`20000`) | **Not enabled by default**; add it to a task through `extra_tools` |
 | `calculator` | – | Evaluates a `sympy` expression in a resource-limited subprocess |

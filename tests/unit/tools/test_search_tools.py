@@ -247,7 +247,7 @@ def test_arxiv_query_sets_a_timeout(monkeypatch):
     """The request carries a timeout, so a slow server cannot stall a run."""
     tool, requests_made = _offline_arxiv(monkeypatch, _FakeReply(_feed()))
     tool.forward(query="LLM", sort="relevance", fromYear=2020)
-    assert requests_made[0]["timeout"] == ArxivSearchTool.TIMEOUT_S == 10
+    assert requests_made[0]["timeout"] == ArxivSearchTool.TIMEOUT_S == 30
 
 
 def test_arxiv_search_tries_a_request_that_timed_out_again(monkeypatch):
