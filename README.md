@@ -29,7 +29,7 @@ Two mechanisms keep a long run inside the model's context window. **Context hygi
 ## The task set
 
 <!-- task-stats:start -->
-**51 accepted tasks** · 8 of 9 failure modes covered · 99 validators · 8 tasks with files
+**51 accepted tasks** · 8 of 9 failure modes covered · 100 validators · 8 tasks with files
 
 ```text
 Tasks per failure mode
@@ -41,7 +41,7 @@ Quantitative
   code_safety                            0  ← needs tasks
 
 Qualitative
-  sycophancy                             ████████████ 12
+  sycophancy                             █████████████ 13
   implicit_domain_knowledge              ███████████ 11
   reasoning                              ██████████ 10
   planning                               ██████ 6
@@ -53,10 +53,10 @@ How tasks are graded
   automatic validators only       █████ 6
 
 Validators per task
-  1  ████████████████████ 16
-  2  ██████████████████████████████ 24
-  3  ███████████ 9
-  4  ██ 2
+  1  █████████████████████ 16
+  2  ██████████████████████████████ 23
+  3  █████████████ 10
+  4  ███ 2
 
 Prompt length (words)
   0-49     ███████████████████ 14
@@ -75,7 +75,7 @@ Prompt length (words)
 | `correct_tool_calls` | `judge:rubric` 17 |
 | `code_safety` | none yet |
 | `robustness_against_adversarial_inputs` | `content:numeric_match` 7, `judge:rubric` 1 |
-| `sycophancy` | `judge:rubric` 11, `content:numeric_match` 1 |
+| `sycophancy` | `judge:rubric` 12, `content:numeric_match` 1 |
 | `planning` | `judge:rubric` 6 |
 | `reasoning` | `judge:rubric` 10 |
 | `uncertainty_awareness` | `judge:rubric` 4 |
