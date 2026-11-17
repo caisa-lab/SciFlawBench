@@ -9,7 +9,7 @@ Author fills in the form and uploads any files
 utils/form_script.gs, inside Google, on each submission
   • gives the submission the next id, starting at SFB-0052
   • copies the author's details to the private Authors tab
-  • emails the id to the author and tells the maintainers
+  • emails the id to the author, and the task's answers to the maintainers
         │
         ▼
 utils/import_form.py, run by a maintainer
@@ -44,9 +44,11 @@ Then, once:
 2. In the spreadsheet, open **Extensions → Apps Script**, paste in [`utils/form_script.gs`](../utils/form_script.gs), run `attach` and allow what it asks for. It names the form's tab `Responses`, adds a `Task ID` column and the private **Authors** tab, keeps answers as typed, and installs the trigger that runs on each submission. Running it again changes nothing.
 3. In the file upload question, allow 5 files and 10 MB per file: the importer refuses a task whose files come to over 20 MB. Uploads count against the account's Drive storage, so in **Settings → Responses** set the total to 10 GB at most.
 4. Publish the form so that anyone with the link can respond. Uploading needs a Google account.
-5. In the script's **Project Settings → Script properties**, set `MAINTAINERS` to the comma-separated addresses to notify.
+5. In the script's **Project Settings → Script properties**, set `MAINTAINERS` to the comma-separated addresses to notify. Each new submission sends them its answers and a link to its row in the sheet, but not the author's name, email, institution, ORCID or OpenReview handle, which stay in the sheet.
 
 A submission sent before step 2 has no task id; the importer reports it by its sheet row.
+
+To update the script later, paste the new version over the old one in **Extensions → Apps Script** and save. The trigger keeps working, so `attach` doesn't need to run again.
 
 Before the first real use, send a fake submission with answers such as `1/2`, `007`, `18.40` and `=2+2` and a prompt with apostrophes, backslashes, line breaks and `Λ`, and check that the import gives them back exactly as typed.
 

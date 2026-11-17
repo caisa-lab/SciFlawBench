@@ -8,6 +8,9 @@ const AUTHORS_TAB = "Authors";
 const TASK_ID = "Task ID";
 // "Task ID", then the form's questions about the author, by their titles on the form; case and spacing don't matter.
 const AUTHOR_COLUMNS = ["Task ID", "Full Name", "Email", "Institution", "ORCID", "OpenReview"];
+// Left out of the maintainers' email, so the author's details stay in the sheet. "Email Address" is the column Google
+// adds when the form collects email addresses itself.
+const NOT_EMAILED = AUTHOR_COLUMNS.concat(["Email Address", "Timestamp"]);
 
 // Run once by hand, from the response spreadsheet (Extensions → Apps Script). Running it again changes nothing.
 function attach() {
@@ -52,7 +55,8 @@ function nextTaskId() {
 // Runs on each submission: gives it the next id, records the author privately, and sends the emails.
 function onFormSubmit(e) {
   const tab = e.range.getSheet();
-  const header = tab.getRange(1, 1, 1, tab.getLastColumn()).getDisplayValues()[0].map(titleKey);
+  const titles = tab.getRange(1, 1, 1, tab.getLastColumn()).getDisplayValues()[0];
+  const header = titles.map(titleKey);
   const answers = tab.getRange(e.range.getRow(), 1, 1, tab.getLastColumn()).getDisplayValues()[0];
   const answer = (title) => answers[header.indexOf(titleKey(title))] || "";
 
@@ -70,11 +74,23 @@ function onFormSubmit(e) {
 
   const maintainers = PropertiesService.getScriptProperties().getProperty("MAINTAINERS");
   if (maintainers) {
-    MailApp.sendEmail(maintainers, `New SciFlawBench submission: ${taskId}`, "It is ready to import.");
+    const summary = submissionSummary(taskId, titles, answers, tab, e.range.getRow());
+    MailApp.sendEmail(maintainers, `New SciFlawBench submission: ${taskId}`, summary);
   }
   MailApp.sendEmail(
     answer("Email"),
     `Your SciFlawBench task: ${taskId}`,
     `Thank you for your submission. Its task id is ${taskId}. We will review it and contact you if we have questions.`
   );
+}
+
+// The maintainers' email: the submission's answers, without the author's details, and a link to its row in the sheet.
+function submissionSummary(taskId, titles, answers, tab, row) {
+  const leftOut = NOT_EMAILED.map(titleKey);
+  const parts = titles
+    .map((title, i) => [title, String(answers[i] || "").trim()])
+    .filter(([title, value]) => value && !leftOut.includes(titleKey(title)))
+    .map(([title, value]) => `${title}:\n${value}`);
+  const link = `${tab.getParent().getUrl()}#gid=${tab.getSheetId()}&range=${row}:${row}`;
+  return [`${taskId} is ready to import.`, ...parts, `Row in the sheet: ${link}`].join("\n\n");
 }
