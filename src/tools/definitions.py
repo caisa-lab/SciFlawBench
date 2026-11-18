@@ -1,8 +1,6 @@
 import logging
 import os
 
-from smolagents import VisitWebpageTool
-
 from core.registry import Registry
 from tools.base import WrappedTool
 from tools.cosmology import CosmologyTool
@@ -17,6 +15,7 @@ from tools.searchtools import (
 )
 from tools.significance import SignificanceTool
 from tools.sky import SkyTool
+from tools.webpage import PublicVisitWebpageTool
 
 # tool registry global object that will keep track of string -> factory mappings for building our tools
 tool_registry = Registry("Tool")
@@ -82,10 +81,11 @@ def make_arxiv_search_tool(watcher, operator: str = "OPERATOR EMAIL NOT SET") ->
 
 
 @tool_registry.register("visit_webpage")
-def make_visit_webpage_tool(watcher) -> WrappedTool:
-    return WrappedTool(
-        wrapped_tool=VisitWebpageTool(max_output_length=_VISIT_WEBPAGE_MAX_OUTPUT_LENGTH), watcher=watcher
-    )
+def make_visit_webpage_tool(watcher, blocked_networks: list[str] | tuple[str, ...] = ()) -> WrappedTool:
+    # Only public web addresses: no loopback, private, link-local (cloud metadata) or other non-public address, and
+    # none in `blocked_networks` (CIDR ranges, for internal services on public addresses), checked on every redirect.
+    tool = PublicVisitWebpageTool(max_output_length=_VISIT_WEBPAGE_MAX_OUTPUT_LENGTH, blocked_networks=blocked_networks)
+    return WrappedTool(wrapped_tool=tool, watcher=watcher)
 
 
 @tool_registry.register("calculator")
