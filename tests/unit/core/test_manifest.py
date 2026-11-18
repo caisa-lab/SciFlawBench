@@ -271,3 +271,41 @@ def test_judge_fingerprint_records_the_trace_budget(tmp_path, monkeypatch):
     assert default["max_trace_tokens"] == 500_000
     assert lowered["max_trace_tokens"] == 100_000
     assert default != lowered  # a resume with a different budget is refused
+
+
+def _model(**settings) -> ModelConfig:
+    return ModelConfig(provider="litellm", model_id="fake", api_key_env="FAKE_KEY", **settings)
+
+
+def test_run_signature_records_request_settings_set_away_from_their_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_KEY", "x")
+    task_file, tasks = _task_file(tmp_path), _tasks()
+
+    default = build_run_signature(_conf(tmp_path, task_file), tasks)["model"]
+    changed = build_run_signature(
+        _conf(tmp_path, task_file, model=_model(supports_stop=False, max_tokens_param="max_completion_tokens")), tasks
+    )["model"]
+
+    # left out at their defaults, so checkpoints written before they were recorded still resume
+    assert "supports_stop" not in default and "max_tokens_param" not in default
+    assert (changed["supports_stop"], changed["max_tokens_param"]) == (False, "max_completion_tokens")
+
+
+@pytest.mark.parametrize(
+    "recorded, resumed",
+    [
+        ({"supports_stop": False}, {"supports_stop": True}),
+        ({"supports_stop": False}, {}),
+        ({}, {"max_tokens_param": "max_completion_tokens"}),
+    ],
+)
+def test_resume_is_refused_when_a_request_setting_changed(tmp_path, monkeypatch, recorded, resumed):
+    monkeypatch.setenv("FAKE_KEY", "x")
+    task_file, tasks = _task_file(tmp_path), _tasks()
+    first = _conf(tmp_path, task_file, model=_model(**recorded))
+    save_run_manifest(tmp_path, _make_manifest(tmp_path, first, tasks))
+
+    resumed_signature = build_run_signature(_conf(tmp_path, task_file, model=_model(**resumed)), tasks)
+    problems = validate_resume(tmp_path, resumed_signature)
+
+    assert problems == ["run signature differs from the manifest (changed: model)."]

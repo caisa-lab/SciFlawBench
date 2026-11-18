@@ -77,6 +77,11 @@ def test_loguniform_range_and_returned_samples():
             {"design": [[1], [1]], "data": [1, 2], "covariance": [[1, 2], [2, 1]]},
             "positive-definite",
         ),
+        (  # not symmetric, though its lower triangle is positive-definite, which is all Cholesky reads
+            "least_squares_fit",
+            {"design": [[1], [1]], "data": [1, 2], "covariance": [[4, 100], [1, 3]]},
+            "symmetric positive-definite",
+        ),
         ("sample_summary", {"distribution": "cauchy", "parameters": {}, "n": 10}, "distribution must be"),
         ("sample_summary", {"distribution": "normal", "parameters": {"mean": 0, "std": 1}, "n": 10**7}, "n must be"),
         ("solve", {"matrix": [[1]], "vector": [1], "extra": 1}, "unexpected keyword"),
