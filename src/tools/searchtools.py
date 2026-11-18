@@ -260,12 +260,13 @@ class ArxivSearchTool(Tool):
     # arXiv's own API, which answers in Atom XML (https://info.arxiv.org/help/api/user-manual.html)
     BASE_URL = "https://export.arxiv.org/api/query"
     USER_AGENT_BASE = "AgenticArXivSearch/0.1 (https://github.com/caisa-lab/SciFlawBench; "
-    # Seconds to wait for a response, so a slow or unreachable server cannot stall a run.
-    TIMEOUT_S = 10
+    # Seconds to wait for a response, so a slow or unreachable server cannot stall a run. arXiv usually answers in
+    # well under a second, but under load some answers take over 10 s.
+    TIMEOUT_S = 30
     MAX_RESULTS = 5
     # arXiv asks API clients for at most one request every 3 seconds. When asked more often it answers 429 (or 503),
     # refuses the connection, or answers too slowly, so such a request is tried again after a pause, up to ATTEMPTS
-    # times in all: at worst about ATTEMPTS * TIMEOUT_S + (ATTEMPTS - 1) * RETRY_WAIT_S seconds, 40 s by default.
+    # times in all: at worst about ATTEMPTS * TIMEOUT_S + (ATTEMPTS - 1) * RETRY_WAIT_S seconds, 100 s by default.
     MIN_INTERVAL_S = 3.0
     ATTEMPTS = 3
     RETRY_WAIT_S = 5.0
