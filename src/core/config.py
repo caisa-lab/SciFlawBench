@@ -182,7 +182,9 @@ class RunConfig(BaseModel):
     task_file: Path
     tool_configs: list[ToolDef] = Field(default_factory=list)
     log_path: Path = Path("logs/")
-    max_concurrent: int = 3  # default max concurrent task running processes
+    # Task processes running at once. One by default: agents running side by side collide on the search services
+    # and load the model server (#59); raise it for faster runs.
+    max_concurrent: int = 1
     closed_book: bool = False  # gives the agent no tools at all: it may only use its own knowledge
 
     repetitions_per_task: int = 3

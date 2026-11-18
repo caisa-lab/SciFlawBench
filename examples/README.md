@@ -31,7 +31,7 @@ The file is a single JSON object. Only `model` and `task_file` are required. Unk
 | `task_file` | string | *required* | Path to the `.jsonl` task file. Checked at load time: it must exist and end in `.jsonl`, or the config is rejected |
 | `tool_configs` | array | `[]` | Per-run tool overrides, see [Tool overrides](#tool-overrides) |
 | `log_path` | string | `"logs/"` | Where the run lives. A fresh run creates `<log_path>/<timestamp>/`; with `restarting` the harness uses `<log_path>` itself |
-| `max_concurrent` | int | `3` | Maximum number of task subprocesses running at once |
+| `max_concurrent` | int | `1` | Maximum number of task subprocesses running at once. One at a time by default, since agents running side by side collide on the search services and load the model server; raise it for faster runs |
 | `repetitions_per_task` | int | `3` | How many times each task is run. Every repetition is an independent agent run and is recorded separately |
 | `task_timeout_s` | int | `900` | Wall-clock budget per task before the runtime manager terminates that subprocess |
 | `closed_book` | bool | `false` | Run the whole benchmark closed-book: the agent is given no harness tools at all (no search, no webpage visiting, no local file reading, no calculator) and may only use its own knowledge. Python execution and `final_answer` remain available |
@@ -175,7 +175,7 @@ The task file referenced by `task_file` has its own schema, documented in [`../d
   "task_file": "data/example/tasks.jsonl",
   "tool_configs": [{ "tool_name": "web_search", "kwargs": { "max_results": 5 } }],
   "log_path": "logs/",
-  "max_concurrent": 3,
+  "max_concurrent": 1,
   "repetitions_per_task": 3,
   "task_timeout_s": 900,
   "generate_trace_reports": true
