@@ -1,3 +1,5 @@
+import copy
+import dataclasses
 import time
 import traceback
 from collections import Counter
@@ -31,6 +33,35 @@ class AgentEvent:
     task_id: int | str
     payload: dict[str, Any]
     timestamp: float
+
+
+def event_record(event: AgentEvent) -> dict[str, Any]:
+    """The event as a plain dict, like `dataclasses.asdict`, with a stand-in for any value that can't be copied.
+
+    Payloads hold the raw arguments and results of the agent's calls. In a code agent these come from the agent's own
+    Python code and can be anything, such as a module or an open file, which `asdict` can't copy (issue #68). Such a
+    value is kept as its `repr`, so the run's record is still written.
+    """
+    try:
+        return dataclasses.asdict(event)
+    except Exception:
+        return {field.name: _copyable(getattr(event, field.name)) for field in dataclasses.fields(event)}
+
+
+def _copyable(value: Any) -> Any:
+    """`value` copied the way `dataclasses.asdict` copies it, with the `repr` of any part that can't be copied."""
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {field.name: _copyable(getattr(value, field.name)) for field in dataclasses.fields(value)}
+    if isinstance(value, dict):
+        return {_copyable(key): _copyable(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_copyable(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_copyable(item) for item in value)
+    try:
+        return copy.deepcopy(value)
+    except Exception:
+        return repr(value)
 
 
 class EventWatcher:

@@ -1,9 +1,11 @@
+import json
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
 from core.config import ModelConfig, RunConfig
 from core.manager import RuntimeManager
+from evaluation.scoring import scoreboard_to_dict
 
 EXAMPLE_TASK1_STRING = '{"task_id": 1,  \
                             "task": "Find for me what is the meaning of life, the universe, and everything.",  \
@@ -117,3 +119,52 @@ def test_drain_results_returns_on_empty_queue_without_blocking_forever(tmp_path,
     manager._drain_results(timeout=0.1)  # nothing on queue — should return promptly, not hang
 
     assert manager._active == {}
+
+
+def _active_run(manager, alive, exitcode=None):
+    """Put the first pending task in the active list, with a fake process."""
+    task = manager._pending.pop(0)
+    proc = MagicMock()
+    proc.is_alive.return_value = alive
+    proc.exitcode = exitcode
+    manager._active[(task.task_id, task.repetition)] = {"proc": proc, "started": time.time() - 60, "task": task}
+    return task
+
+
+def test_reap_exited_records_a_process_that_died_without_a_result(tmp_path, monkeypatch):
+    """A task process that crashed before sending its result must not hold the run until its timeout (issue #68)."""
+    monkeypatch.setenv("FAKE_KEY", "x")
+    manager = RuntimeManager(make_run_config(tmp_path, f"{EXAMPLE_TASK1_STRING}\n"))
+    _active_run(manager, alive=False, exitcode=1)
+
+    manager._reap_exited(grace_s=0)
+
+    assert manager._active == {}
+    record = json.loads(manager.shared_results_jsonl.read_text().splitlines()[-1])
+    assert (record["id"], record["repetition"], record["status"]) == (1, 1, "exited")
+    assert (record["failure_kind"], record["error_type"]) == ("infrastructure", "process_exited")
+    assert "exited with code 1" in record["error"]
+    scores = scoreboard_to_dict(manager.write_scores())
+    assert [run["task_id"] for run in scores["infrastructure_failures"]] == [1]
+    assert manager.load_completed() == set()  # resuming runs it again
+
+
+def test_reap_exited_waits_for_the_last_message_of_a_process_that_just_ended(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_KEY", "x")
+    manager = RuntimeManager(make_run_config(tmp_path, f"{EXAMPLE_TASK1_STRING}\n"))
+    _active_run(manager, alive=False, exitcode=0)
+
+    manager._reap_exited(grace_s=10)
+
+    assert len(manager._active) == 1
+    assert not manager.shared_results_jsonl.exists()
+
+
+def test_reap_exited_leaves_a_running_process_alone(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_KEY", "x")
+    manager = RuntimeManager(make_run_config(tmp_path, f"{EXAMPLE_TASK1_STRING}\n"))
+    _active_run(manager, alive=True)
+
+    manager._reap_exited(grace_s=0)
+
+    assert len(manager._active) == 1

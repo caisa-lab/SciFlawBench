@@ -1,8 +1,12 @@
+import dataclasses
+import json
+import threading
+
 import pytest
 from smolagents import Model, Tool
 from smolagents.models import ChatMessage, MessageRole
 
-from core.events import AgentEvent, EventType, EventWatcher, failed_tool_calls
+from core.events import AgentEvent, EventType, EventWatcher, event_record, failed_tool_calls
 from models.base import WrappedModel
 from tools.base import WrappedTool
 
@@ -138,3 +142,25 @@ def test_a_tool_that_raises_is_counted_through_the_watcher():
         tool.forward(query="GW190521")
 
     assert failed_tool_calls(captured) == {"broken_search": 1}
+
+
+def test_event_record_is_asdict_for_an_ordinary_event():
+    event = AgentEvent(EventType.ToolCallEnd, "SFB-0001", {"name": "web_search", "result": ["a", ("b", 1)]}, 1.0)
+    assert event_record(event) == dataclasses.asdict(event)
+
+
+def test_event_record_keeps_a_stand_in_for_a_value_that_cannot_be_copied():
+    """A code agent can pass anything to a tool, e.g. a module; the record must still be written (issue #68)."""
+    events: list[AgentEvent] = []
+    watcher = EventWatcher(task_id="SFB-0000", sink=events.append)
+    lock = threading.Lock()
+    watcher("tool", "json_answer_tool", lambda **kwargs: "ok", answer=json, extra={"lock": lock, "n": [1, 2]})
+
+    with pytest.raises(TypeError):
+        dataclasses.asdict(events[0])  # what crashed the run before
+    record = event_record(events[0])
+    kwargs = record["payload"]["kwargs"]
+    assert kwargs["answer"] == repr(json)
+    assert kwargs["extra"] == {"lock": repr(lock), "n": [1, 2]}
+    assert record["payload"]["name"] == "json_answer_tool"
+    json.dumps(record)  # the record can be written
