@@ -5,6 +5,7 @@ import tempfile
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -15,38 +16,69 @@ from smolagents import DuckDuckGoSearchTool, Tool, WikipediaSearchTool
 logger = logging.getLogger(__name__)
 
 
+def _keep_shared_interval(lock_file: Path, min_interval_s: float) -> None:
+    """Wait until `min_interval_s` have passed since the last request recorded in `lock_file`, then record this one.
+
+    Every task runs in its own process, so a gap kept in memory would let all running agents send a request at the
+    same moment. The time of the last request is kept in the file instead, which a request locks while it waits.
+    """
+    with open(lock_file, "a+", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)  # released when the file is closed
+        lock.seek(0)
+        try:
+            last = float(lock.read().strip())
+        except ValueError:  # a new or unreadable file: no request yet
+            last = float("-inf")
+        wait = min_interval_s - (time.time() - last)
+        if wait > 0:
+            time.sleep(wait)
+        lock.seek(0)
+        lock.truncate()
+        lock.write(repr(time.time()))
+
+
 class RetryingDuckDuckGoSearchTool(DuckDuckGoSearchTool):
-    """smolagents' DuckDuckGo search, tried again when a search fails.
+    """smolagents' DuckDuckGo search, paced across agents and tried again when a search fails.
 
     The search goes through `ddgs`, which scrapes search engines in a random order without an API key. The engines
-    often block it, so about half of single searches fail at random, while the same query usually works a few seconds
-    later. A failed search is therefore tried up to `attempts` times, `retry_wait_s` seconds apart; if the last try
-    fails too, its error is raised as before, so the agent sees it.
+    often block it, and block it more when several agents search at the same moment. So every web_search on this
+    machine waits until `min_interval_s` have passed since the last one of any agent, and a failed search is tried up
+    to `attempts` times, waiting `retry_wait_s` before each new try: one number for the same wait every time, or a list
+    of growing waits. If the last try fails too, its error is raised as before, so the agent sees it.
     """
+
+    LOCK_FILE = Path(tempfile.gettempdir()) / "sciflawbench_web_search.lock"
 
     def __init__(
         self,
         max_results: int = 10,
         rate_limit: float | None = 1.0,
-        attempts: int = 3,
-        retry_wait_s: float = 3.0,
+        attempts: int = 4,
+        retry_wait_s: float | Sequence[float] = (5.0, 15.0, 30.0),
+        min_interval_s: float = 2.0,
         **kwargs,
     ):
         super().__init__(max_results=max_results, rate_limit=rate_limit, **kwargs)
         if attempts < 1:
             raise ValueError(f"attempts must be at least 1, got {attempts}")
+        waits = [float(retry_wait_s)] if isinstance(retry_wait_s, (int, float)) else [float(w) for w in retry_wait_s]
+        if not waits:
+            raise ValueError("retry_wait_s needs at least one wait")
         self.attempts = attempts
-        self.retry_wait_s = retry_wait_s
+        self.retry_waits_s = waits
+        self.min_interval_s = min_interval_s
 
     def forward(self, query: str) -> str:
         for attempt in range(1, self.attempts + 1):
+            if attempt > 1:
+                time.sleep(self.retry_waits_s[min(attempt - 2, len(self.retry_waits_s) - 1)])
+            _keep_shared_interval(self.LOCK_FILE, self.min_interval_s)
             try:
                 return super().forward(query)
             except Exception as exc:
                 if attempt == self.attempts:
                     raise
                 logger.info("web_search try %d of %d failed (%s); trying again", attempt, self.attempts, exc)
-                time.sleep(self.retry_wait_s)
 
 
 class SerpAPISearchTool(Tool):
@@ -351,19 +383,7 @@ class ArxivSearchTool(Tool):
 
     def _keep_interval(self) -> None:
         """Wait until MIN_INTERVAL_S have passed since the last request of any arxiv_search tool on this machine."""
-        with open(self.LOCK_FILE, "a+", encoding="utf-8") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)  # released when the file is closed
-            lock.seek(0)
-            try:
-                last = float(lock.read().strip())
-            except ValueError:  # a new or unreadable file: no request yet
-                last = float("-inf")
-            wait = self.MIN_INTERVAL_S - (time.time() - last)
-            if wait > 0:
-                time.sleep(wait)
-            lock.seek(0)
-            lock.truncate()
-            lock.write(repr(time.time()))
+        _keep_shared_interval(self.LOCK_FILE, self.MIN_INTERVAL_S)
 
     def _entries(self, feed: str) -> list[ET.Element]:
         entries = ET.fromstring(feed).findall(self._ATOM + "entry")
