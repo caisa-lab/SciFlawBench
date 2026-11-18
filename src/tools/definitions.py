@@ -14,6 +14,7 @@ from tools.searchtools import (
     ImprovedWikipediaSearchTool,
     RetryingDuckDuckGoSearchTool,
     SerpAPISearchTool,
+    TavilySearchTool,
 )
 from tools.significance import SignificanceTool
 from tools.sky import SkyTool
@@ -50,10 +51,22 @@ def make_web_search_tool(
     attempts: int = 4,
     retry_wait_s: float | list[float] = (5.0, 15.0, 30.0),
     min_interval_s: float = 2.0,
+    blocked_urls: list[str] | tuple[str, ...] = TavilySearchTool.BLOCKED_URLS,
 ) -> WrappedTool:
-    # `attempts`, `retry_wait_s` and `min_interval_s` apply to the DuckDuckGo search only: it fails often at random,
-    # more so when several agents search at once (issues #59, #60), so all agents keep one pace and a failed search is
-    # tried again, with growing waits, before the agent sees an error.
+    # The DuckDuckGo search fails often at random, more so when several agents search at once (issues #59, #60), so
+    # all agents keep one pace (`min_interval_s`) and a failed search is tried again, with growing waits (`attempts`,
+    # `retry_wait_s`), before the agent sees an error. The Tavily search (`engine="tavily"`, issue #66) uses an API key
+    # instead; it tries rate limits, server errors and timeouts again the same way and drops results whose URL
+    # contains one of `blocked_urls`. `blocked_urls` applies to Tavily only, `min_interval_s` to DuckDuckGo only.
+    if engine == "tavily":
+        key = os.environ.get("TAVILY_API_KEY")
+        if not key:
+            raise ValueError("web_search with engine 'tavily' needs the TAVILY_API_KEY environment variable")
+        search = TavilySearchTool(
+            key, max_results, rate_limit, attempts=attempts, retry_wait_s=retry_wait_s, blocked_urls=blocked_urls
+        )
+        return WrappedTool(wrapped_tool=search, watcher=watcher)
+
     if os.environ.get("SERPAPI_KEY", None) is not None and engine != "duckduckgo":
         key = os.environ["SERPAPI_KEY"]
         kwargs = {"max_results": 8, "rate_limit": 1.0, "engine": engine, "api_key": key}

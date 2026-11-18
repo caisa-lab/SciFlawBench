@@ -117,7 +117,7 @@ src/
 ├── tools/
 │   ├── misc.py                 # miscellaneous custom tool classes that get registered
 │   ├── definitions.py          # tool definitions and the tool registry
-│   ├── searchtools.py          # contains the searchtools available to the agents: (arxiv, SerpAPI, wikipedia)
+│   ├── searchtools.py          # contains the searchtools available to the agents: (arxiv, DuckDuckGo, SerpAPI, Tavily, wikipedia)
 │   ├── artifacts.py            # artifact store: spills oversized tool outputs to disk
 │   ├── artifacttools.py        # retrieval tools for spilled outputs (search_artifact/read_artifact/list_artifacts)
 │   └── base.py                 # the wrapper used by every tool

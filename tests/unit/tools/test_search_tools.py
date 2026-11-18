@@ -13,6 +13,8 @@ from tools.searchtools import (
     ImprovedWikipediaSearchTool,
     RetryingDuckDuckGoSearchTool,
     SerpAPISearchTool,
+    TavilySearchError,
+    TavilySearchTool,
 )
 
 
@@ -412,3 +414,172 @@ def test_web_searches_of_all_agents_keep_one_pace(monkeypatch, tmp_path):
     clock[0] += 0.5
     second.forward("GW190521")  # another agent, half a second later: waits for the rest of the 2 s
     assert waits == [1.5]
+
+
+class _FakeTavilyReply:
+    def __init__(self, results=None, status_code=200, detail="", headers=None):
+        self.status_code, self.headers = status_code, headers or {}
+        self._json = {"results": results or []} if status_code == 200 else {"detail": {"error": detail}}
+        self.text = str(self._json)
+
+    def json(self):
+        return self._json
+
+
+GW190521 = {"title": "GW190521", "url": "https://example.org/gw190521", "content": "A heavy black-hole merger."}
+
+
+def _offline_tavily(monkeypatch, *replies, **options):
+    """A Tavily search whose requests get `replies` in turn, without the network or waiting; returns it, the
+    requests made and the waits."""
+    requests_made, waits, queue = [], [], list(replies)
+    monkeypatch.setattr("tools.searchtools.time.sleep", waits.append)
+
+    def fake_post(url, json, headers, timeout):
+        requests_made.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        reply = queue.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    monkeypatch.setattr("tools.searchtools.requests.post", fake_post)
+    options = {"rate_limit": None, **options}
+    return TavilySearchTool("tvly-test-key", **options), requests_made, waits
+
+
+def test_tavily_search_formats_results_like_the_duckduckgo_search(monkeypatch):
+    tool, _, _ = _offline_tavily(monkeypatch, _FakeTavilyReply([GW190521]))
+    assert tool.forward("GW190521 masses") == (
+        "## Search Results\n\n[GW190521](https://example.org/gw190521)\nA heavy black-hole merger."
+    )
+
+
+def test_tavily_search_asks_for_ranked_pages_only(monkeypatch):
+    tool, requests_made, _ = _offline_tavily(monkeypatch, _FakeTavilyReply([GW190521]), max_results=8)
+    tool.forward("GW190521 masses")
+    sent = requests_made[0]
+    assert sent["url"] == "https://api.tavily.com/search"
+    assert sent["headers"] == {"Authorization": "Bearer tvly-test-key"}
+    assert sent["timeout"] == 30
+    assert sent["json"] == {
+        "query": "GW190521 masses",
+        "search_depth": "basic",
+        "max_results": 13,  # 8 plus 5 spare, to replace results from blocked URLs
+        "include_answer": False,
+        "include_raw_content": False,
+        "include_images": False,
+    }
+
+
+def test_tavily_search_drops_results_from_the_benchmark_itself(monkeypatch):
+    leaks = [
+        {
+            "title": "tasks.jsonl",
+            "url": "https://github.com/caisa-lab/SciFlawBench/blob/main/data/tasks/v0/tasks.jsonl",
+        },
+        {"title": "SciFlawBench", "url": "https://caisa-lab.github.io/SciFlawBench/"},
+        {"title": "a copy", "url": "https://github.com/someone/SciFlawBenchHarness-copy"},
+    ]
+    tool, _, _ = _offline_tavily(monkeypatch, _FakeTavilyReply([leaks[0], GW190521, *leaks[1:]]))
+    res = tool.forward("GW190521 masses")
+    assert "[GW190521](https://example.org/gw190521)" in res
+    assert "SciFlawBench" not in res and "tasks.jsonl" not in res
+
+
+def test_tavily_search_blocks_the_urls_it_is_given(monkeypatch):
+    other = {"title": "Wikipedia", "url": "https://en.wikipedia.org/wiki/GW190521", "content": "An event."}
+    tool, _, _ = _offline_tavily(monkeypatch, _FakeTavilyReply([other, GW190521]), blocked_urls=["Wikipedia.org"])
+    res = tool.forward("GW190521")
+    assert "wikipedia" not in res and "example.org/gw190521" in res
+
+
+def test_tavily_search_keeps_at_most_max_results(monkeypatch):
+    pages = [{"title": f"page {i}", "url": f"https://example.org/{i}", "content": ""} for i in range(10)]
+    tool, _, _ = _offline_tavily(monkeypatch, _FakeTavilyReply(pages), max_results=3)
+    res = tool.forward("pages")
+    assert res.count("](https://example.org/") == 3
+
+
+def test_tavily_search_with_no_results_says_so(monkeypatch):
+    tool, _, _ = _offline_tavily(monkeypatch, _FakeTavilyReply([]))
+    assert tool.forward("a query that finds nothing").startswith("No results found")
+
+
+def test_tavily_search_tries_a_rate_limit_or_server_error_again(monkeypatch):
+    tool, requests_made, waits = _offline_tavily(
+        monkeypatch, _FakeTavilyReply(status_code=429), _FakeTavilyReply(status_code=502), _FakeTavilyReply([GW190521])
+    )
+    assert "GW190521" in tool.forward("GW190521 masses")
+    assert len(requests_made) == 3
+    assert waits == [5.0, 15.0]
+
+
+def test_tavily_search_waits_as_long_as_tavily_asks(monkeypatch):
+    tool, _, waits = _offline_tavily(
+        monkeypatch, _FakeTavilyReply(status_code=429, headers={"Retry-After": "40"}), _FakeTavilyReply([GW190521])
+    )
+    tool.forward("GW190521 masses")
+    assert waits == [40.0]
+
+
+def test_tavily_search_tries_a_timed_out_request_again(monkeypatch):
+    tool, requests_made, _ = _offline_tavily(
+        monkeypatch, requests.Timeout("read timed out"), requests.ConnectionError("reset"), _FakeTavilyReply([GW190521])
+    )
+    assert "GW190521" in tool.forward("GW190521 masses")
+    assert len(requests_made) == 3
+
+
+def test_tavily_search_raises_the_last_error_when_every_try_fails(monkeypatch):
+    tool, requests_made, _ = _offline_tavily(monkeypatch, *[_FakeTavilyReply(status_code=503)] * 4)
+    with pytest.raises(TavilySearchError, match="HTTP 503"):
+        tool.forward("GW190521 masses")
+    assert len(requests_made) == 4
+
+
+@pytest.mark.parametrize("status_code", [400, 401, 432, 433])
+def test_tavily_search_fails_at_once_when_tavily_refuses_it(monkeypatch, status_code):
+    tool, requests_made, _ = _offline_tavily(monkeypatch, _FakeTavilyReply(status_code=status_code, detail="refused"))
+    with pytest.raises(TavilySearchError, match=f"HTTP {status_code}: .*refused"):
+        tool.forward("GW190521 masses")
+    assert len(requests_made) == 1
+
+
+def test_tavily_search_errors_never_show_the_key(monkeypatch):
+    tool, _, _ = _offline_tavily(monkeypatch, *[requests.Timeout("timed out")] * 4)
+    with pytest.raises(TavilySearchError) as error:
+        tool.forward("GW190521 masses")
+    assert "tvly-test-key" not in str(error.value)
+
+
+def test_tavily_search_needs_a_key_and_an_attempt():
+    with pytest.raises(ValueError, match="API key"):
+        TavilySearchTool("")
+    with pytest.raises(ValueError, match="attempts"):
+        TavilySearchTool("tvly-test-key", attempts=0)
+
+
+def test_web_search_uses_tavily_when_asked(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
+    monkeypatch.setenv("SERPAPI_KEY", "serp-test-key")  # Tavily is chosen even when a SerpAPI key is set
+    wrapped = tool_registry.get("web_search")(
+        watcher=None, engine="tavily", max_results=5, attempts=2, retry_wait_s=[1.0], blocked_urls=["example.org"]
+    )
+    tool = wrapped._wrapped
+    assert isinstance(tool, TavilySearchTool)
+    assert (tool.max_results, tool.attempts, tool.retry_waits_s, tool.blocked_urls) == (5, 2, [1.0], ["example.org"])
+    assert tool_registry.get("web_search")(watcher=None, engine="tavily")._wrapped.blocked_urls == ["sciflawbench"]
+
+
+def test_web_search_with_tavily_needs_its_key(monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="TAVILY_API_KEY"):
+        tool_registry.get("web_search")(watcher=None, engine="tavily")
+
+
+@pytest.mark.live
+@pytest.mark.skipif(not os.environ.get("TAVILY_API_KEY"), reason="an api key is required to hit the real api")
+def test_live_tavily_search():
+    res = TavilySearchTool(os.environ["TAVILY_API_KEY"]).forward("GW190521 binary black hole merger masses")
+    assert res.startswith("## Search Results")
+    assert "sciflawbench" not in res.lower()

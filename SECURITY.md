@@ -32,7 +32,7 @@ The optional `read_file` tool (`src/tools/filetools.py`) resolves whatever path 
 
 Several tools reach out to third parties:
 
-- `web_search` uses DuckDuckGo by default, and SerpAPI when `SERPAPI_KEY` is set (`src/tools/definitions.py`).
+- `web_search` uses DuckDuckGo by default, SerpAPI when `SERPAPI_KEY` is set, and Tavily's search API when a config sets `engine: "tavily"` and `TAVILY_API_KEY` is set (`src/tools/definitions.py`). The agent's query goes to that service.
 - `wikipedia_search` queries the Wikipedia API, and `arxiv_search` queries arXiv's own API (`export.arxiv.org`, `src/tools/searchtools.py`). Both send the configured operator email in the request `User-Agent`.
 - `visit_webpage` (`VisitWebpageTool`) performs an in-memory HTTP GET with a 20-second timeout and truncates the page to 40 000 characters before converting it to Markdown. The harness itself never writes fetched content to disk.
 
@@ -75,7 +75,7 @@ Per-task traces under `logs/<timestamp>/results/` hold the full event stream: pr
 
 1. Run under a dedicated unprivileged user, or inside a container/VM.
 2. Expose only the task file, its assets and a writable log directory to that environment. Do not mount `$HOME`, SSH keys, credential stores or production data.
-3. Export only the model-provider keys you need, and leave `SERPAPI_KEY` unset if you do not want third-party search.
+3. Export only the model-provider keys you need, and leave `SERPAPI_KEY` and `TAVILY_API_KEY` unset if you do not want third-party search.
 4. Review the task set and the agent prompts (`src/agents/prompts/`) before running it.
 5. Treat the run directory as disposable and its contents as sensitive.
 
