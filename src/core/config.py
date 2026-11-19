@@ -210,7 +210,10 @@ class RunConfig(BaseModel):
     """
 
     model: ModelConfig
-    judge: JudgeConfig | None = None  # required by the `judge:*` validators; pinned in the manifest
+    # The judge of the `judge:*` validators, or `judges`: a panel graded by majority vote (evaluation.judge.JudgePanel).
+    # A run whose tasks use those validators needs one of the two; both are pinned in the manifest.
+    judge: JudgeConfig | None = None
+    judges: list[JudgeConfig] | None = None
     task_file: Path
     tool_configs: list[ToolDef] = Field(default_factory=list)
     log_path: Path = Path("logs/")
@@ -262,6 +265,22 @@ class RunConfig(BaseModel):
         if v < 1:
             raise ValueError(f"{info.field_name} must be at least 1, got {v}")
         return v
+
+    @model_validator(mode="after")
+    def one_judge_section(self) -> "RunConfig":
+        """A run is graded by one judge (`judge`) or by a panel (`judges`), not both, and a panel is not empty."""
+        if self.judge is not None and self.judges is not None:
+            raise ValueError("set either 'judge' (one judge) or 'judges' (a panel), not both")
+        if self.judges is not None and not self.judges:
+            raise ValueError("'judges' must list at least one judge")
+        return self
+
+    @property
+    def judge_panel(self) -> list[JudgeConfig]:
+        """The judges of the `judge:*` validators: none, one (`judge`, or a `judges` list of one), or a panel."""
+        if self.judge is not None:
+            return [self.judge]
+        return list(self.judges or [])
 
     @field_validator("task_file")
     @classmethod

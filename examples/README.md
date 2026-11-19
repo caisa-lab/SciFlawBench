@@ -28,6 +28,7 @@ The file is a single JSON object. Only `model` and `task_file` are required. Unk
 | --- | ---- | ------- | ----------- |
 | `model` | object | *required* | Model configuration, see [Model settings](#model-settings) |
 | `judge` | object \| null | `null` | LLM-as-a-judge model used by the `judge:*` validators, see [Judge settings](#judge-settings) |
+| `judges` | list of objects \| null | `null` | A panel of judges instead of one: each entry has the keys of `judge`, and a `judge:*` check passes when most of the judges pass it. Set `judge` or `judges`, not both; see [Judge panels](#judge-panels) |
 | `task_file` | string | *required* | Path to the `.jsonl` task file. Checked at load time: it must exist and end in `.jsonl`, or the config is rejected |
 | `tool_configs` | array | `[]` | Per-run tool overrides, see [Tool overrides](#tool-overrides) |
 | `log_path` | string | `"logs/"` | Where the run lives. A fresh run creates `<log_path>/<timestamp>/`; with `restarting` the harness uses `<log_path>` itself |
@@ -37,7 +38,7 @@ The file is a single JSON object. Only `model` and `task_file` are required. Unk
 | `closed_book` | bool | `false` | Run the whole benchmark closed-book: the agent is given no harness tools at all (no search, no webpage visiting, no local file reading, no calculator) and may only use its own knowledge. Python execution and `final_answer` remain available |
 | `logging_level` | int | `20` | Standard-library logging level: `10` DEBUG, `20` INFO, `30` WARNING, `40` ERROR |
 | `restarting` | bool | `false` | Resume in place: treat `log_path` as an existing run directory instead of creating a new timestamped one. Set `log_path` to the interrupted run's directory. See [Reproducibility and resuming](../README.md#reproducibility-and-resuming) |
-| `generate_trace_reports` | bool | `false` | Also write a human-readable Markdown report per task/repetition under `results/<task_id>_reports/`. It is rendered within the judge's `max_trace_tokens` budget (its default when there is no judge), so it shows what the judge read; the raw trace stays complete in `results/<task_id>_traces/` |
+| `generate_trace_reports` | bool | `false` | Also write a human-readable Markdown report per task/repetition under `results/<task_id>_reports/`. It is rendered within the judge's `max_trace_tokens` budget (the smallest in a panel; its default when there is no judge), so it shows what the judge read; the raw trace stays complete in `results/<task_id>_traces/` |
 | `artifact_spill` | bool | `true` | Spill oversized tool outputs to disk under `results/<task_id>_artifacts/` and give the agent the `search_artifact`/`read_artifact`/`list_artifacts` tools. Set to `false` to truncate oversized outputs in place instead (no files written, no retrieval tools) |
 | `tool_output_max_chars` | int | `20000` | Characters a tool may return before its output is capped. With `artifact_spill`, the overflow is saved to disk; otherwise it is truncated in place. `wikipedia_search` uses a larger cap (50 000) |
 | `memory_offload` | bool | `true` | Spill messages evicted by context trimming to `memory.md` in the task's artifact directory, leaving a digest and pointer in their place (see [Context hygiene and large outputs](#context-hygiene-and-large-outputs)). Needs `artifact_spill` |
@@ -88,6 +89,19 @@ The judge is sent three things: the task's **rubric**, the run's **trace** (rend
 
 The entire judge configuration — model, endpoint and extra kwargs — plus a hash of the hardcoded judge prompt template is written into the run manifest and is part of the run signature, so a run
 can only be resumed while it is still graded by the same judge. The judge's API key is never written anywhere.
+
+#### Judge panels
+
+`judges` replaces `judge` with a list of judges, each configured with the keys above. Every judge grades the same trace with the same prompt, in parallel, and a check passes when more of the judges that answered pass it than fail it:
+
+- **A judge that fails** (its call fails, or its reply can't be read) is asked once more. If it fails again, it abstains and the others decide. If no judge answers, the check fails, as it does when a single judge's call fails.
+- **A tie fails the check:** 1–1 in a panel of two, so there both judges must pass, or after an abstention in a panel of three.
+- **One trace:** the panel reads a single trace, rendered within the smallest `max_trace_tokens` among its judges.
+- **What is recorded:** each check stores `judge_model` (`majority of <judge>, <judge>, ...`), every judge's verdict and justification under `votes`, and `tie`. Its justification lists the votes (`2 of 3 judges passed.` followed by one line per judge).
+- **Resuming:** the manifest records every judge, in order, and the majority rule, so a run resumes only with the same panel. A `judges` list with one judge is recorded exactly like `judge`.
+- **Cost:** each check costs one call per judge.
+
+The example configuration uses a panel of `z-ai/glm-5.3-flash`, `openai/gpt-5-mini` and `deepseek/deepseek-v4.1-flash-1017`. Re-grading 214 rubric verdicts of GPT-5.5, it agreed with GPT-5.5 on 93.0% of them (Cohen's κ 0.86) at about a sixth of the cost, and it leaned lenient, most on reasoning rubrics ([#67](https://github.com/caisa-lab/SciFlawBench/issues/67)). `openai/gpt-5-mini` reads at most 272k input tokens, so its `max_trace_tokens` is set to 250000. Scores graded by different judges or panels are not comparable.
 
 ### Tool overrides
 
@@ -170,10 +184,11 @@ The task file referenced by `task_file` has its own schema, documented in [`../d
     "max_new_tokens": 16384,
     "model_max_context": 256000
   },
-  "judge": {
-    "model_id": "openrouter/qwen/qwen3.7-flash",
-    "api_key_env": "OPENROUTER_API_KEY"
-  },
+  "judges": [
+    { "model_id": "openrouter/z-ai/glm-5.3-flash", "api_key_env": "OPENROUTER_API_KEY" },
+    { "model_id": "openrouter/openai/gpt-5-mini", "api_key_env": "OPENROUTER_API_KEY", "max_trace_tokens": 250000 },
+    { "model_id": "openrouter/deepseek/deepseek-v4.1-flash-1017", "api_key_env": "OPENROUTER_API_KEY" }
+  ],
   "task_file": "data/example/tasks.jsonl",
   "tool_configs": [{ "tool_name": "web_search", "kwargs": { "max_results": 5 } }],
   "log_path": "logs/",

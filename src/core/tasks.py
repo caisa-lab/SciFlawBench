@@ -19,7 +19,7 @@ from core.task_ids import FIXED_ID_PATTERN, TaskId, hash_prompt, render_task, ta
 from evaluation.base import VerificationResult, VerifierContext, VerifierDef, kwargs_problem, run_check, wants_context
 from evaluation.code_safety import code_safety_check
 from evaluation.definitions import verifier_registry
-from evaluation.judge import LiteLLMJudge
+from evaluation.judge import JudgePanel, LiteLLMJudge
 from evaluation.print_report import render_trace_markdown, save_markdown_report
 from evaluation.scoring import INFRASTRUCTURE_FAILURE, MODEL_FAILURE, FailureModes
 from models.memory import MemoryOffloader
@@ -245,9 +245,11 @@ def trace_token_budget(run_config: RunConfig) -> int:
     """
     Token budget for rendering a run's trace: the judge's `max_trace_tokens`, or its default without a judge.
 
-    The judge and the per-task trace reports use the same budget, so a report shows what the judge read.
+    A panel reads one trace, rendered within the smallest budget among its judges, so every judge can read it.
+    The judges and the per-task trace reports use the same budget, so a report shows what the judges read.
     """
-    return run_config.judge.max_trace_tokens if run_config.judge is not None else DEFAULT_MAX_TRACE_TOKENS
+    panel = run_config.judge_panel
+    return min(judge.max_trace_tokens for judge in panel) if panel else DEFAULT_MAX_TRACE_TOKENS
 
 
 def build_verifier_context(
@@ -272,13 +274,15 @@ def build_verifier_context(
     if not any(verifier_wants_context(verifier.name) for verifier in task.validators):
         return None
 
-    judge: LiteLLMJudge | None = None
+    judge: LiteLLMJudge | JudgePanel | None = None
     judge_error: str | None = None
-    if run_config.judge is None:
-        judge_error = "the run config has no 'judge' section"
+    panel = run_config.judge_panel
+    if not panel:
+        judge_error = "the run config has no 'judge' or 'judges' section"
     else:
         try:
-            judge = LiteLLMJudge(run_config.judge)
+            judges = [LiteLLMJudge(conf) for conf in panel]
+            judge = judges[0] if len(judges) == 1 else JudgePanel(judges)
         except Exception as exc:  # building the client must not take down the task itself
             judge_error = f"{type(exc).__name__}: {exc}"
 

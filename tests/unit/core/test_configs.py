@@ -157,6 +157,31 @@ def test_judge_trace_budget_has_a_default_and_must_be_positive(monkeypatch):
         JudgeConfig(model_id="m", api_key_env="JUDGE_KEY", max_trace_tokens=0)
 
 
+def _judges(*model_ids):
+    return [JudgeConfig(model_id=model_id, api_key_env="JUDGE_KEY") for model_id in model_ids]
+
+
+def test_a_run_has_no_judge_one_judge_or_a_panel(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUDGE_KEY", "x")
+
+    assert _conf(tmp_path, monkeypatch).judge_panel == []
+    assert [j.model_id for j in _conf(tmp_path, monkeypatch, judge=_judges("a")[0]).judge_panel] == ["a"]
+    assert [j.model_id for j in _conf(tmp_path, monkeypatch, judges=_judges("a", "b", "c")).judge_panel] == [
+        "a",
+        "b",
+        "c",
+    ]
+
+
+def test_judge_and_judges_cannot_both_be_set(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUDGE_KEY", "x")
+
+    with pytest.raises(ValidationError, match="not both"):
+        _conf(tmp_path, monkeypatch, judge=_judges("a")[0], judges=_judges("b", "c"))
+    with pytest.raises(ValidationError, match="at least one judge"):
+        _conf(tmp_path, monkeypatch, judges=[])
+
+
 @pytest.mark.parametrize("field", ["max_concurrent", "repetitions_per_task", "task_timeout_s"])
 @pytest.mark.parametrize("value", [0, -1])
 def test_scheduling_values_must_be_at_least_one(tmp_path, monkeypatch, field, value):

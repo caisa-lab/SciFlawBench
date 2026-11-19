@@ -4,10 +4,11 @@
     "model_id": "openrouter/qwen/qwen3.7-flash",
     "api_key_env": "OPENROUTER_API_KEY"
   },
-  "judge": {
-    "model_id": "openrouter/qwen/qwen3.7-flash",
-    "api_key_env": "OPENROUTER_API_KEY"
-  },
+  "judges": [
+    { "model_id": "openrouter/z-ai/glm-5.3-flash", "api_key_env": "OPENROUTER_API_KEY" },
+    { "model_id": "openrouter/openai/gpt-5-mini", "api_key_env": "OPENROUTER_API_KEY", "max_trace_tokens": 250000 },
+    { "model_id": "openrouter/deepseek/deepseek-v4.1-flash-1017", "api_key_env": "OPENROUTER_API_KEY" }
+  ],
   "task_file": "data/example/tasks.jsonl",
   "generate_trace_reports": true,
   "max_concurrent": 1

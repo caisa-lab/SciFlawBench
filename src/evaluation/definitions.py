@@ -220,7 +220,9 @@ def judge_rubric(got: str, rubric: str, context: VerifierContext) -> Verificatio
     The judge is a LiteLLM-served model configured through the run config's `judge` section; it
     is sent the rubric, the run's trace and a hardcoded output specification, and must reply
     with a JSON object holding `evaluation` (the score) and `justification`. Both end up in the
-    check's metadata, so every judged run records why it was passed or failed.
+    check's metadata, so every judged run records why it was passed or failed. With a `judges`
+    panel, every judge grades the trace and the majority decides (see `JudgePanel`); each judge's
+    verdict is stored in the metadata under `votes`, and `tie` says whether the check failed on a tie.
 
     Args:
         got (str): the agent's final answer (not sent to the judge on its own; it is part of the trace)
@@ -233,7 +235,8 @@ def judge_rubric(got: str, rubric: str, context: VerifierContext) -> Verificatio
         reason = context.judge_error if context is not None and context.judge_error else "no judge model is configured"
         return VerificationResult(
             passed=False,
-            details=f"LLM judge unavailable: {reason}. Add a 'judge' section to the run config to use judge:rubric.",
+            details=f"LLM judge unavailable: {reason}. Add a 'judge' or 'judges' section to the run config to use "
+            "judge:rubric.",
             metadata={"rubric": rubric},
         )
 
@@ -249,11 +252,17 @@ def judge_rubric(got: str, rubric: str, context: VerifierContext) -> Verificatio
             metadata=metadata,
         )
     except Exception as exc:
+        votes = getattr(exc, "votes", None)  # a panel in which no judge answered says what each one did
         return VerificationResult(
             passed=False,
             details=f"LLM judge ({judge_model}) call failed: {type(exc).__name__}: {exc}",
-            metadata=metadata,
+            metadata=metadata if votes is None else {**metadata, "votes": votes},
         )
+
+    votes = getattr(verdict, "votes", None)  # set by a panel, None for a single judge
+    if votes is not None:
+        counted = [vote["passed"] for vote in votes if vote["passed"] is not None]
+        metadata = {**metadata, "votes": votes, "tie": 2 * sum(counted) == len(counted)}
 
     return VerificationResult(
         passed=verdict.passed,
