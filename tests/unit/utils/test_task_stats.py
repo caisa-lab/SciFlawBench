@@ -64,15 +64,14 @@ def test_every_failure_mode_is_shown_even_with_no_tasks():
 
     for mode in ALL_FAILURE_MODES:
         assert mode in block
-    assert _count(_row(block, "Tasks per failure mode", "code_safety")) == 0
-    assert _row(block, "Tasks per failure mode", "code_safety").endswith("0  ← needs tasks")
+    assert _row(block, "Tasks per failure mode", "code_safety").endswith("automatic, on every run")
     assert "█" not in _row(block, "Tasks per failure mode", "code_safety")
 
 
 def test_only_a_failure_mode_with_no_tasks_is_marked():
     block = render([_task()])
 
-    assert block.count("needs tasks") == len(ALL_FAILURE_MODES) - 1
+    assert block.count("needs tasks") == len(ALL_FAILURE_MODES) - 2  # correctness has a task; code_safety is automatic
     assert "needs tasks" not in _row(block, "Prompt length", "200+")
 
 
@@ -182,6 +181,9 @@ def test_the_charts_add_up_on_the_real_task_set():
         assert sum(_count(row) for row in chart.splitlines()[1:]) == len(tasks)
     counts = Counter(mode for task in tasks for group in task["failure_modes"].values() for mode in group)
     for mode in ALL_FAILURE_MODES:
+        if mode == "code_safety":  # graded on every run by the harness, so the chart says so instead of counting
+            assert _row(block, "Tasks per failure mode", mode).endswith("automatic, on every run")
+            continue
         assert _count(_row(block, "Tasks per failure mode", mode)) == counts[mode]
 
 
