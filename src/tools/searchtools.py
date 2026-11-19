@@ -7,7 +7,7 @@ import unicodedata
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import requests
 from serpapi import Client
@@ -45,6 +45,15 @@ def _retry_waits(retry_wait_s: float | Sequence[float]) -> list[float]:
     return waits
 
 
+#: Search results and pages refused by default: the benchmark's public repository, its pages and copies hold the tasks
+#: and their answers.
+BLOCKED_URLS = ("sciflawbench",)
+
+
+def _is_blocked(url: Any, blocked_urls: Sequence[str]) -> bool:
+    return any(pattern in str(url or "").lower() for pattern in blocked_urls)
+
+
 class RetryingDuckDuckGoSearchTool(DuckDuckGoSearchTool):
     """smolagents' DuckDuckGo search, paced across agents and tried again when a search fails.
 
@@ -52,7 +61,8 @@ class RetryingDuckDuckGoSearchTool(DuckDuckGoSearchTool):
     often block it, and block it more when several agents search at the same moment. So every web_search on this
     machine waits until `min_interval_s` have passed since the last one of any agent, and a failed search is tried up
     to `attempts` times, waiting `retry_wait_s` before each new try: one number for the same wait every time, or a list
-    of growing waits. If the last try fails too, its error is raised as before, so the agent sees it.
+    of growing waits. If the last try fails too, its error is raised as before, so the agent sees it. Results whose URL
+    contains one of `blocked_urls` (case-insensitive) are dropped, as in the Tavily search.
     """
 
     LOCK_FILE = Path(tempfile.gettempdir()) / "sciflawbench_web_search.lock"
@@ -64,6 +74,7 @@ class RetryingDuckDuckGoSearchTool(DuckDuckGoSearchTool):
         attempts: int = 4,
         retry_wait_s: float | Sequence[float] = (5.0, 15.0, 30.0),
         min_interval_s: float = 2.0,
+        blocked_urls: Sequence[str] = BLOCKED_URLS,
         **kwargs,
     ):
         super().__init__(max_results=max_results, rate_limit=rate_limit, **kwargs)
@@ -72,6 +83,7 @@ class RetryingDuckDuckGoSearchTool(DuckDuckGoSearchTool):
         self.attempts = attempts
         self.retry_waits_s = _retry_waits(retry_wait_s)
         self.min_interval_s = min_interval_s
+        self.blocked_urls = [pattern.lower() for pattern in blocked_urls if pattern]
 
     def forward(self, query: str) -> str:
         for attempt in range(1, self.attempts + 1):
@@ -79,11 +91,25 @@ class RetryingDuckDuckGoSearchTool(DuckDuckGoSearchTool):
                 time.sleep(self.retry_waits_s[min(attempt - 2, len(self.retry_waits_s) - 1)])
             _keep_shared_interval(self.LOCK_FILE, self.min_interval_s)
             try:
-                return super().forward(query)
+                return self._search(query)
             except Exception as exc:
                 if attempt == self.attempts:
                     raise
                 logger.info("web_search try %d of %d failed (%s); trying again", attempt, self.attempts, exc)
+
+    def _search(self, query: str) -> str:
+        """smolagents' DuckDuckGo search, without the results from blocked URLs."""
+        self._enforce_rate_limit()
+        results = self.ddgs.text(query, max_results=self.max_results)
+        if len(results) == 0:
+            raise Exception("No results found! Try a less restrictive/shorter query.")
+        kept = [result for result in results if not _is_blocked(result.get("href"), self.blocked_urls)]
+        if len(kept) < len(results):
+            logger.info("web_search dropped %d result(s) from blocked URLs", len(results) - len(kept))
+        if not kept:
+            return "No results found. Try a less restrictive or shorter query."
+        pages = [f"[{result['title']}]({result['href']})\n{result['body']}" for result in kept]
+        return "## Search Results\n\n" + "\n\n".join(pages)
 
 
 class SerpAPISearchTool(Tool):
@@ -146,7 +172,14 @@ class SerpAPISearchTool(Tool):
 
 
 class TavilySearchError(RuntimeError):
-    """A Tavily search that failed: Tavily refused it, or every try hit a rate limit, server error or timeout."""
+    """A Tavily search that failed: Tavily refused it, or every try hit a rate limit, server error or timeout.
+
+    `status` is the HTTP status of Tavily's last reply, or None when the last try got no reply (a timeout).
+    """
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 class TavilySearchTool(Tool):
@@ -172,7 +205,7 @@ class TavilySearchTool(Tool):
     output_type = "string"
 
     API_URL = "https://api.tavily.com/search"
-    BLOCKED_URLS = ("sciflawbench",)
+    BLOCKED_URLS = BLOCKED_URLS
     TIMEOUT_S = 30
     RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
     MAX_API_RESULTS = 20  # Tavily's cap on max_results
@@ -228,7 +261,10 @@ class TavilySearchTool(Tool):
             else:
                 if reply.status_code == 200:
                     return self._format(reply.json().get("results") or [])
-                error = TavilySearchError(f"Tavily search failed with HTTP {reply.status_code}: {self._detail(reply)}")
+                error = TavilySearchError(
+                    f"Tavily search failed with HTTP {reply.status_code}: {self._detail(reply)}",
+                    status=reply.status_code,
+                )
                 if reply.status_code not in self.RETRY_STATUS:
                     raise error
                 asked_wait = self._retry_after(reply)
@@ -237,7 +273,7 @@ class TavilySearchTool(Tool):
         raise error
 
     def _format(self, results: list[dict]) -> str:
-        kept = [r for r in results if not any(p in str(r.get("url", "")).lower() for p in self.blocked_urls)]
+        kept = [r for r in results if not _is_blocked(r.get("url"), self.blocked_urls)]
         if len(kept) < len(results):
             logger.info("web_search dropped %d result(s) from blocked URLs", len(results) - len(kept))
         kept = kept[: self.max_results]
@@ -268,6 +304,43 @@ class TavilySearchTool(Tool):
         if elapsed < self._min_interval:
             time.sleep(self._min_interval - elapsed)
         self._last_request_time = time.time()
+
+
+class FallbackSearchTool(Tool):
+    """`web_search` with a backup: the Tavily search first, and DuckDuckGo when Tavily fails.
+
+    A query whose Tavily search still fails after its tries, or that Tavily refuses, is sent to the backup instead, and
+    the results say so in their first line. When Tavily refuses the key itself or its credits are used up
+    (`PERMANENT_STATUS`), the rest of the run searches with the backup only, without asking Tavily again. If the backup
+    fails too, its error is raised, so the agent sees it and the run is listed under `tool_failures`.
+    """
+
+    name = "web_search"
+    description = TavilySearchTool.description
+    inputs = TavilySearchTool.inputs
+    output_type = "string"
+
+    #: Tavily's replies for a bad or unauthorised key (401, 403) and for used-up credits (432 plan, 433 pay-as-you-go).
+    PERMANENT_STATUS = frozenset({401, 403, 432, 433})
+
+    def __init__(self, primary: Tool, backup: Tool):
+        super().__init__()
+        self.primary, self.backup = primary, backup
+        self.primary_off: str | None = None  # why the primary is no longer asked, once it refused for good
+
+    def forward(self, query: str) -> str:
+        reason = self.primary_off
+        if reason is None:
+            try:
+                return self.primary.forward(query)
+            except Exception as exc:  # any failure of the primary sends the query to the backup
+                reason = str(exc) or type(exc).__name__
+                if getattr(exc, "status", None) in self.PERMANENT_STATUS:
+                    self.primary_off = reason
+                logger.warning("web_search: %s; searching with DuckDuckGo instead", reason)
+        return f"_The Tavily search failed ({reason}); these results are from DuckDuckGo._\n\n" + self.backup.forward(
+            query
+        )
 
 
 class ImprovedWikipediaSearchTool(WikipediaSearchTool):
