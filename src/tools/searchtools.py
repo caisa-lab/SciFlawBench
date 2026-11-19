@@ -37,6 +37,14 @@ def _keep_shared_interval(lock_file: Path, min_interval_s: float) -> None:
         lock.write(repr(time.time()))
 
 
+def _retry_waits(retry_wait_s: float | Sequence[float]) -> list[float]:
+    """The waits before each new try of a failed search: one number for the same wait every time, or a list."""
+    waits = [float(retry_wait_s)] if isinstance(retry_wait_s, (int, float)) else [float(w) for w in retry_wait_s]
+    if not waits:
+        raise ValueError("retry_wait_s needs at least one wait")
+    return waits
+
+
 class RetryingDuckDuckGoSearchTool(DuckDuckGoSearchTool):
     """smolagents' DuckDuckGo search, paced across agents and tried again when a search fails.
 
@@ -61,11 +69,8 @@ class RetryingDuckDuckGoSearchTool(DuckDuckGoSearchTool):
         super().__init__(max_results=max_results, rate_limit=rate_limit, **kwargs)
         if attempts < 1:
             raise ValueError(f"attempts must be at least 1, got {attempts}")
-        waits = [float(retry_wait_s)] if isinstance(retry_wait_s, (int, float)) else [float(w) for w in retry_wait_s]
-        if not waits:
-            raise ValueError("retry_wait_s needs at least one wait")
         self.attempts = attempts
-        self.retry_waits_s = waits
+        self.retry_waits_s = _retry_waits(retry_wait_s)
         self.min_interval_s = min_interval_s
 
     def forward(self, query: str) -> str:
@@ -135,6 +140,131 @@ class SerpAPISearchTool(Tool):
 
         now = time.time()
         elapsed = now - self._last_request_time
+        if elapsed < self._min_interval:
+            time.sleep(self._min_interval - elapsed)
+        self._last_request_time = time.time()
+
+
+class TavilySearchError(RuntimeError):
+    """A Tavily search that failed: Tavily refused it, or every try hit a rate limit, server error or timeout."""
+
+
+class TavilySearchTool(Tool):
+    """Web search through Tavily's search API (https://docs.tavily.com/), chosen with `engine="tavily"` (issue #66).
+
+    It needs an API key instead of scraping search engines, so it is not blocked the way the DuckDuckGo search is.
+    Each search is a basic one (1 Tavily credit) and returns only the ranked pages, in the same format as the
+    DuckDuckGo search: Tavily's own model-written answer is left off, so no second model helps the agent.
+
+    Results whose URL contains one of `blocked_urls` (case-insensitive) are dropped. By default that is any URL with
+    "sciflawbench" in it: the benchmark's public repository, its pages and copies hold the tasks and their answers.
+
+    A rate limit, a server error or a timeout is tried again, waiting `retry_wait_s` before each new try (longer if
+    Tavily asks for it); a search Tavily refuses (a bad key, used-up credits, an invalid query) fails at once. The last
+    error is raised, so the agent sees it and the run is listed under `tool_failures`.
+    """
+
+    name = "web_search"
+    description = (
+        "Performs a web search based on your query (think a Google search) then returns the top search results."
+    )
+    inputs = {"query": {"type": "string", "description": "The search query to perform."}}
+    output_type = "string"
+
+    API_URL = "https://api.tavily.com/search"
+    BLOCKED_URLS = ("sciflawbench",)
+    TIMEOUT_S = 30
+    RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
+    MAX_API_RESULTS = 20  # Tavily's cap on max_results
+    SPARE_RESULTS = 5  # asked for on top of max_results, to replace results from blocked URLs
+
+    def __init__(
+        self,
+        api_key: str,
+        max_results: int = 8,
+        rate_limit: float | None = 1.0,
+        attempts: int = 4,
+        retry_wait_s: float | Sequence[float] = (5.0, 15.0, 30.0),
+        blocked_urls: Sequence[str] = BLOCKED_URLS,
+    ):
+        super().__init__()
+        if not api_key:
+            raise ValueError("the Tavily search needs an API key")
+        if attempts < 1:
+            raise ValueError(f"attempts must be at least 1, got {attempts}")
+        self._api_key = api_key
+        self.max_results = max_results
+        self.rate_limit = rate_limit
+        self._min_interval = 1.0 / rate_limit if rate_limit else 0.0
+        self._last_request_time = 0.0
+        self.attempts = attempts
+        self.retry_waits_s = _retry_waits(retry_wait_s)
+        self.blocked_urls = [pattern.lower() for pattern in blocked_urls]
+
+    def forward(self, query: str) -> str:
+        payload = {
+            "query": query,
+            "search_depth": "basic",
+            "max_results": min(self.MAX_API_RESULTS, self.max_results + self.SPARE_RESULTS),
+            "include_answer": False,
+            "include_raw_content": False,
+            "include_images": False,
+        }
+        error, asked_wait = None, 0.0
+        for attempt in range(1, self.attempts + 1):
+            if attempt > 1:
+                time.sleep(max(self.retry_waits_s[min(attempt - 2, len(self.retry_waits_s) - 1)], asked_wait))
+            self._enforce_rate_limit()
+            asked_wait = 0.0
+            try:
+                reply = requests.post(
+                    self.API_URL,
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    timeout=self.TIMEOUT_S,
+                )
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                error = TavilySearchError(f"Tavily search failed: {type(exc).__name__}")
+            else:
+                if reply.status_code == 200:
+                    return self._format(reply.json().get("results") or [])
+                error = TavilySearchError(f"Tavily search failed with HTTP {reply.status_code}: {self._detail(reply)}")
+                if reply.status_code not in self.RETRY_STATUS:
+                    raise error
+                asked_wait = self._retry_after(reply)
+            if attempt < self.attempts:
+                logger.info("web_search try %d of %d failed (%s); trying again", attempt, self.attempts, error)
+        raise error
+
+    def _format(self, results: list[dict]) -> str:
+        kept = [r for r in results if not any(p in str(r.get("url", "")).lower() for p in self.blocked_urls)]
+        if len(kept) < len(results):
+            logger.info("web_search dropped %d result(s) from blocked URLs", len(results) - len(kept))
+        kept = kept[: self.max_results]
+        if not kept:
+            return "No results found. Try a less restrictive or shorter query."
+        pages = [f"[{r.get('title', '')}]({r.get('url', '')})\n{r.get('content', '')}" for r in kept]
+        return "## Search Results\n\n" + "\n\n".join(pages)
+
+    @staticmethod
+    def _detail(reply) -> str:
+        try:
+            detail = reply.json().get("detail", "")
+        except ValueError:
+            detail = reply.text
+        return str(detail)[:200]
+
+    @staticmethod
+    def _retry_after(reply) -> float:
+        try:
+            return float(reply.headers.get("Retry-After", 0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _enforce_rate_limit(self) -> None:
+        if not self.rate_limit:
+            return
+        elapsed = time.time() - self._last_request_time
         if elapsed < self._min_interval:
             time.sleep(self._min_interval - elapsed)
         self._last_request_time = time.time()

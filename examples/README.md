@@ -31,7 +31,7 @@ The file is a single JSON object. Only `model` and `task_file` are required. Unk
 | `task_file` | string | *required* | Path to the `.jsonl` task file. Checked at load time: it must exist and end in `.jsonl`, or the config is rejected |
 | `tool_configs` | array | `[]` | Per-run tool overrides, see [Tool overrides](#tool-overrides) |
 | `log_path` | string | `"logs/"` | Where the run lives. A fresh run creates `<log_path>/<timestamp>/`; with `restarting` the harness uses `<log_path>` itself |
-| `max_concurrent` | int | `3` | Maximum number of task subprocesses running at once |
+| `max_concurrent` | int | `1` | Maximum number of task subprocesses running at once. One at a time by default, since agents running side by side collide on the search services and load the model server; raise it for faster runs |
 | `repetitions_per_task` | int | `3` | How many times each task is run. Every repetition is an independent agent run and is recorded separately |
 | `task_timeout_s` | int | `900` | Wall-clock budget per task before the runtime manager terminates that subprocess |
 | `closed_book` | bool | `false` | Run the whole benchmark closed-book: the agent is given no harness tools at all (no search, no webpage visiting, no local file reading, no calculator) and may only use its own knowledge. Python execution and `final_answer` remain available |
@@ -106,7 +106,7 @@ Each entry **replaces** the keyword arguments of that tool for the whole run (ra
 
 | Tool | Options (defaults) | Notes |
 | ---- | ------------------ | ----- |
-| `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests per second), `engine` (`"duckduckgo"`), `attempts` (`4`), `retry_wait_s` (`[5, 15, 30]`), `min_interval_s` (`2.0`) | SerpAPI is used instead of DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is not `"duckduckgo"`. DuckDuckGo searches of all agents keep at least `min_interval_s` seconds apart, and a failed one is tried up to `attempts` times, waiting `retry_wait_s` seconds before each new try |
+| `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests per second), `engine` (`"duckduckgo"`), `attempts` (`4`), `retry_wait_s` (`[5, 15, 30]`), `min_interval_s` (`2.0`), `blocked_urls` (`["sciflawbench"]`) | `engine: "tavily"` searches with Tavily's search API (needs `TAVILY_API_KEY`, see [`../docs/tools.md`](../docs/tools.md)); its results drop any URL containing one of `blocked_urls`, by default the benchmark's own repository and pages. SerpAPI is used instead of DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is neither `"duckduckgo"` nor `"tavily"`. DuckDuckGo searches of all agents keep at least `min_interval_s` seconds apart. A failed DuckDuckGo search, or a Tavily search that hit a rate limit, server error or timeout, is tried up to `attempts` times, waiting `retry_wait_s` seconds before each new try |
 | `wikipedia_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | The operator email is placed in the request `User-Agent`, as the Wikimedia API policy asks |
 | `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | Searches arXiv through arXiv's own API, with a 30 s timeout and 3 s between the requests of all agents on the machine; an arXiv ID in the query is looked up directly. The operator email is placed in the request `User-Agent` |
 | `visit_webpage` | `blocked_networks` (`[]`) | Fetches a public http or https URL and returns the page as Markdown. Non-public addresses, and any in `blocked_networks`, are refused, on every redirect too (see [`../docs/tools.md`](../docs/tools.md)) |
@@ -136,6 +136,7 @@ Two run-level mechanisms keep a long agent run from overflowing the model's cont
 | *the name in `api_key_env`* | yes | API key for the configured provider. Read from the environment when the config is validated; a `.env` file in the working directory is loaded automatically |
 | *the name in `judge.api_key_env`* | only with a `judge` | API key for the judge model, read the same way |
 | `SERPAPI_KEY` | no | When set, `web_search` may use SerpAPI instead of DuckDuckGo (better results, needs a SerpAPI account) |
+| `TAVILY_API_KEY` | only with `engine: "tavily"` | API key for `web_search` with `engine: "tavily"` (needs a Tavily account). Without it, such a run stops with an error |
 | `NO_REPRODUCIBILITY_GUARANTEES` | no | Set to `true` to downgrade resume/manifest mismatches from a hard refusal to a warning. Results produced under it are no longer verifiable |
 | `ENABLE_TEST_FAKES` | no | Set to `1` to register the test-only fake presets and tools used by the smoke tests |
 
@@ -176,7 +177,7 @@ The task file referenced by `task_file` has its own schema, documented in [`../d
   "task_file": "data/example/tasks.jsonl",
   "tool_configs": [{ "tool_name": "web_search", "kwargs": { "max_results": 5 } }],
   "log_path": "logs/",
-  "max_concurrent": 3,
+  "max_concurrent": 1,
   "repetitions_per_task": 3,
   "task_timeout_s": 900,
   "generate_trace_reports": true

@@ -10,5 +10,5 @@
   },
   "task_file": "data/example/tasks.jsonl",
   "generate_trace_reports": true,
-  "max_concurrent": 3
+  "max_concurrent": 1
 }

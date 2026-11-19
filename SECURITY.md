@@ -32,7 +32,7 @@ The optional `read_file` tool (`src/tools/filetools.py`) resolves whatever path 
 
 Several tools reach out to third parties:
 
-- `web_search` uses DuckDuckGo by default, and SerpAPI when `SERPAPI_KEY` is set (`src/tools/definitions.py`).
+- `web_search` uses DuckDuckGo by default, SerpAPI when `SERPAPI_KEY` is set, and Tavily's search API when a config sets `engine: "tavily"` and `TAVILY_API_KEY` is set (`src/tools/definitions.py`). The agent's query goes to that service.
 - `wikipedia_search` queries the Wikipedia API, and `arxiv_search` queries arXiv's own API (`export.arxiv.org`, `src/tools/searchtools.py`). Both send the configured operator email in the request `User-Agent`.
 - `visit_webpage` (`src/tools/webpage.py`, built on smolagents' `VisitWebpageTool`) performs an HTTP GET with a 20-second timeout, reads at most the first 10 MB, and converts the page to Markdown. A long page goes through the tool-output cap like any tool output, so it can be spilled to the run's artifacts folder, and the page is also kept in the run's trace.
   It only fetches public http and https addresses: the host, and the host of every redirect (followed by hand, at most 5), must resolve only to public IP addresses. So loopback, private networks and link-local addresses such as cloud metadata services (`169.254.169.254`) are refused, and a task or an injected instruction can't make the agent read them. Two gaps remain: a host whose DNS answer changes between the check and the request (DNS rebinding), and internal services on public addresses, such as a university network reached over a VPN. List such networks in the tool's `blocked_networks` option, or run in an isolated network.
@@ -77,7 +77,7 @@ Per-task traces under `logs/<timestamp>/results/` hold the full event stream: pr
 
 1. Run under a dedicated unprivileged user, or inside a container/VM.
 2. Expose only the task file, its assets and a writable log directory to that environment. Do not mount `$HOME`, SSH keys, credential stores or production data.
-3. Export only the model-provider keys you need, and leave `SERPAPI_KEY` unset if you do not want third-party search.
+3. Export only the model-provider keys you need, and leave `SERPAPI_KEY` and `TAVILY_API_KEY` unset if you do not want third-party search.
 4. Review the task set and the agent prompts (`src/agents/prompts/`) before running it.
 5. Treat the run directory as disposable and its contents as sensitive.
 
