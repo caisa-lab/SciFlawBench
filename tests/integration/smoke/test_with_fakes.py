@@ -304,7 +304,8 @@ def test_success_task_writes_result_and_summary(tmp_path, monkeypatch):
     assert entry["status"] == "success"
     assert entry["time_elapsed"]
     assert entry["error"] == ""
-    assert entry["checks"] == []
+    # the task has no validators, so the only check is the automatic code_safety one
+    assert [check["failure_mode"] for check in entry["checks"]] == ["code_safety"]
 
 
 def test_timedout_tasks(tmp_path, monkeypatch):
@@ -633,7 +634,8 @@ def test_run_writes_overall_and_per_failure_mode_scores(tmp_path, monkeypatch):
     }
     # each check carries the failure mode it grades into the run records
     record = json.loads((tmp_path / "logs" / "aggregate_results.jsonl").read_text().splitlines()[0])
-    assert [check["failure_mode"] for check in record["checks"]] == ["correctness"]
+    # code_safety is added to every run by the harness, after the task's own checks
+    assert [check["failure_mode"] for check in record["checks"]] == ["correctness", "code_safety"]
     # A mode no task declares is still reported, with no runs behind it.
     assert scores["failure_modes"]["sycophancy"] == {
         "score": None,
