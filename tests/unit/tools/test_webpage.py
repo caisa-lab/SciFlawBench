@@ -149,6 +149,8 @@ def test_the_registry_builds_the_public_only_tool(monkeypatch):
     assert tool.name == "visit_webpage"
     assert tool.blocked_networks == [ipaddress.ip_network("93.184.216.0/24")]
     assert tool_registry.get("visit_webpage")(watcher=None)._wrapped.max_output_length == 10**9
+    assert tool_registry.get("visit_webpage")(watcher=None)._wrapped.blocked_urls == ["sciflawbench"]
+    assert tool_registry.get("visit_webpage")(watcher=None, blocked_urls=["Notes"])._wrapped.blocked_urls == ["notes"]
 
 
 def test_only_the_first_part_of_a_huge_page_is_read(web):
@@ -158,6 +160,43 @@ def test_only_the_first_part_of_a_huge_page_is_read(web):
     res = PublicVisitWebpageTool().forward("https://example.org/huge")
     assert res.startswith(f"_Only the first {MAX_PAGE_BYTES // 2**20} MB of this page were read._")
     assert huge.chunks_read * 64 * 1024 < 2 * MAX_PAGE_BYTES  # it stopped reading, not read it all and cut
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/caisa-lab/SciFlawBench",
+        "https://raw.githubusercontent.com/caisa-lab/SciFlawBench/main/data/tasks/v0/tasks.jsonl",
+        "https://github.com/someone/sciflawbench-fork/issues/1",
+        "https://example.org/search?q=SCIFLAWBENCH",
+        "https://github.com/caisa-lab/SciFlaw%42ench",  # %42 is B
+    ],
+)
+def test_a_url_of_the_benchmark_itself_is_refused_without_a_request(web, url):
+    requests_made, _ = web
+    res = PublicVisitWebpageTool().forward(url)
+    assert res == f"Error fetching the webpage: {url!r} is not available"
+    assert requests_made == []
+
+
+def test_a_redirect_to_the_benchmark_itself_is_refused(web):
+    requests_made, replies = web
+    replies.append(_FakeReply(status_code=302, location="https://github.com/caisa-lab/SciFlawBench/issues"))
+    res = PublicVisitWebpageTool().forward("https://example.org/short-link")
+    assert res == "Error fetching the webpage: 'https://github.com/caisa-lab/SciFlawBench/issues' is not available"
+    assert len(requests_made) == 1
+
+
+def test_blocked_urls_can_be_changed_or_turned_off(web):
+    requests_made, replies = web
+    assert "is not available" in PublicVisitWebpageTool(blocked_urls=["private-notes"]).forward(
+        "https://example.org/Private-Notes"
+    )
+    replies.append(_FakeReply("<p>notes on sciflawbench</p>"))
+    assert "notes on sciflawbench" in PublicVisitWebpageTool(blocked_urls=[]).forward(
+        "https://example.org/sciflawbench"
+    )
+    assert [r["url"] for r in requests_made] == ["https://example.org/sciflawbench"]
 
 
 def test_the_page_is_decoded_with_its_declared_encoding(web):

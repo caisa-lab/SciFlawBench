@@ -16,7 +16,7 @@ from tools.searchtools import (
 )
 from tools.significance import SignificanceTool
 from tools.sky import SkyTool
-from tools.webpage import PublicVisitWebpageTool
+from tools.webpage import BLOCKED_URLS, PublicVisitWebpageTool
 
 # tool registry global object that will keep track of string -> factory mappings for building our tools
 tool_registry = Registry("Tool")
@@ -94,10 +94,17 @@ def make_arxiv_search_tool(watcher, operator: str = "OPERATOR EMAIL NOT SET") ->
 
 
 @tool_registry.register("visit_webpage")
-def make_visit_webpage_tool(watcher, blocked_networks: list[str] | tuple[str, ...] = ()) -> WrappedTool:
+def make_visit_webpage_tool(
+    watcher,
+    blocked_networks: list[str] | tuple[str, ...] = (),
+    blocked_urls: list[str] | tuple[str, ...] = BLOCKED_URLS,
+) -> WrappedTool:
     # Only public web addresses: no loopback, private, link-local (cloud metadata) or other non-public address, and
     # none in `blocked_networks` (CIDR ranges, for internal services on public addresses), checked on every redirect.
-    tool = PublicVisitWebpageTool(max_output_length=_VISIT_WEBPAGE_MAX_OUTPUT_LENGTH, blocked_networks=blocked_networks)
+    # A URL containing one of `blocked_urls` ("sciflawbench" by default: the benchmark's own repository) is refused too.
+    tool = PublicVisitWebpageTool(
+        max_output_length=_VISIT_WEBPAGE_MAX_OUTPUT_LENGTH, blocked_networks=blocked_networks, blocked_urls=blocked_urls
+    )
     return WrappedTool(wrapped_tool=tool, watcher=watcher)
 
 
