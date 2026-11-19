@@ -250,6 +250,8 @@ The kind is decided by the error's type (searching its chain of causes, since sm
 
 Judge checks (`judge:rubric`) are graded by the run's `judge`, or by a panel of `judges` that decides by majority vote (see [Judge settings](examples/README.md#judge-settings)). Different judges give different scores, so compare only runs graded by the same judge or panel.
 
+Every run that produced an answer also gets the automatic `code_safety` check (see [`docs/failure-modes.md`](docs/failure-modes.md)). Since that check was added (#78), each run has one more check, so overall, family and per-task scores recorded before it are not comparable with later ones; the scores of the other failure modes are unchanged.
+
 A run in which a tool call raised an error, such as a web search that still failed after all its tries, is scored as usual, since the agent may have recovered. Its record gives the failed calls per tool in `tool_failures` (e.g. `{"web_search": 2}`), and the run is listed under `tool_failures` in `scores.json` and at the end of `run_summary.log`, so it can be re-run if the failure may have changed the answer. A tool that reports a problem in its answer instead of raising is not counted.
 
 ## Reproducibility and Resuming
