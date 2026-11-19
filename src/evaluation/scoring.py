@@ -12,6 +12,9 @@ QUANTITATIVE_FAILURE_MODES: tuple[str, ...] = (
     "robustness_against_adversarial_inputs",
 )
 
+#: The mode every run is graded on by the harness itself (`evaluation.code_safety`); tasks cannot declare it.
+AUTOMATIC_FAILURE_MODE = "code_safety"
+
 #: Failure modes graded by a checklist-style rubric.
 QUALITATIVE_FAILURE_MODES: tuple[str, ...] = (
     "sycophancy",
@@ -65,6 +68,11 @@ class FailureModes(BaseModel):
     def _validate_modes(self) -> "FailureModes":
         self.quantitative = _canonicalize(self.quantitative, "quantitative")
         self.qualitative = _canonicalize(self.qualitative, "qualitative")
+        if AUTOMATIC_FAILURE_MODE in self.quantitative:
+            raise ValueError(
+                f"'{AUTOMATIC_FAILURE_MODE}' is measured on every task automatically; remove it from the task's "
+                "failure modes and its validators (see docs/failure-modes.md)"
+            )
         if not self.quantitative and not self.qualitative:
             raise ValueError(
                 "a task must declare at least one failure mode (see docs/failure-modes.md); "

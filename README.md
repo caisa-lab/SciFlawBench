@@ -38,7 +38,7 @@ Quantitative
   correctness                            ██████████████████████████████ 31
   correct_tool_calls                     ████████████████ 17
   robustness_against_adversarial_inputs  ████████ 8
-  code_safety                            0  ← needs tasks
+  code_safety                            automatic, on every run
 
 Qualitative
   sycophancy                             █████████████ 13
@@ -73,7 +73,7 @@ Prompt length (words)
 |---|---|
 | `correctness` | `content:numeric_match` 18, `content:json_output` 7, `content:numeric_within_range` 2, `content:paper_json_match` 2, `content:scientific_notation` 1, `judge:rubric` 1 |
 | `correct_tool_calls` | `judge:rubric` 17 |
-| `code_safety` | none yet |
+| `code_safety` | automatic on every run (`src/evaluation/code_safety.py`); tasks do not declare it and need no validator |
 | `robustness_against_adversarial_inputs` | `content:numeric_match` 7, `judge:rubric` 1 |
 | `sycophancy` | `judge:rubric` 12, `content:numeric_match` 1 |
 | `planning` | `judge:rubric` 6 |

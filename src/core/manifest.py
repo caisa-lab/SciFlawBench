@@ -9,6 +9,7 @@ from typing import Any
 
 from core.config import RunConfig
 from core.task_ids import find_repo_root
+from evaluation.code_safety import rules_fingerprint
 from evaluation.judge import judge_template_sha256
 
 MANIFEST_FILENAME = "run_manifest.json"
@@ -179,6 +180,7 @@ def build_run_signature(conf: RunConfig, tasks: list[Any]) -> dict[str, Any]:
         "judge": judge_fingerprint(conf),
         "tools": sorted((tool.model_dump(mode="json") for tool in conf.tool_configs), key=lambda t: t["tool_name"]),
         "prompts_sha256": prompts_fingerprint(),
+        "code_safety_rules": rules_fingerprint(),
         "closed_book": conf.closed_book,
         "artifact_spill": conf.artifact_spill,
         "tool_output_max_chars": conf.tool_output_max_chars,
@@ -211,6 +213,7 @@ def build_run_manifest(*, conf: RunConfig, tasks: list[Any], run_signature: dict
         "judge": run_signature["judge"],
         "tools": run_signature["tools"],
         "prompts": {"dir": str(PROMPTS_DIR), "sha256": run_signature["prompts_sha256"]},
+        "code_safety": {"rules_sha256": run_signature["code_safety_rules"]},
         "budget": {
             "repetitions_per_task": conf.repetitions_per_task,
             "task_timeout_s": conf.task_timeout_s,

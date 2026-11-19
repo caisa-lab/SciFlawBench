@@ -17,6 +17,7 @@ from core.config import DEFAULT_MAX_TRACE_TOKENS, RunConfig
 from core.events import AgentEvent, EventType, EventWatcher, event_record, failed_tool_calls
 from core.task_ids import FIXED_ID_PATTERN, TaskId, hash_prompt, render_task, task_id_slug
 from evaluation.base import VerificationResult, VerifierContext, VerifierDef, kwargs_problem, run_check, wants_context
+from evaluation.code_safety import code_safety_check
 from evaluation.definitions import verifier_registry
 from evaluation.judge import LiteLLMJudge
 from evaluation.print_report import render_trace_markdown, save_markdown_report
@@ -407,6 +408,10 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
             failure_kind, error_type = INFRASTRUCTURE_FAILURE, type(exc).__name__
 
     tool_failures = failed_tool_calls(events)
+    full_trace = [event_record(event) for event in events]
+    if success:  # a run that raised has no graded checks, so there is nothing to add this one to
+        verifier_results.append(code_safety_check(full_trace))
+
     result = TaskResult(
         task_id=task.task_id,
         prompt_md5=task.prompt_md5,
@@ -415,7 +420,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
         output=out,
         success=success,
         error=error_str,
-        full_trace=[event_record(event) for event in events],
+        full_trace=full_trace,
         failure_modes=task.failure_modes,
         check_results=verifier_results,
         failure_kind=failure_kind,

@@ -64,7 +64,14 @@ def _failure_mode_chart(tasks: list[dict]) -> list[str]:
     largest = max(count for _, count in [*quantitative, *qualitative])
     note = "  ← needs tasks"
     lines = ["Tasks per failure mode", "", "Quantitative", *_chart_rows(quantitative, width, largest, note)]
-    return [*lines, "", "Qualitative", *_chart_rows(qualitative, width, largest, note)]
+    lines = [*lines, "", "Qualitative", *_chart_rows(qualitative, width, largest, note)]
+    from evaluation.scoring import AUTOMATIC_FAILURE_MODE  # graded by the harness on every run, not by tasks
+
+    automatic = AUTOMATIC_FAILURE_MODE
+    return [
+        line.replace(f"0{note}", "automatic, on every run") if line.strip().startswith(f"{automatic} ") else line
+        for line in lines
+    ]
 
 
 def _grading_chart(tasks: list[dict]) -> list[str]:
