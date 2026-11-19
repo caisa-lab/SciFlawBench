@@ -109,7 +109,7 @@ Each entry **replaces** the keyword arguments of that tool for the whole run (ra
 | `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests per second), `engine` (`"duckduckgo"`), `attempts` (`4`), `retry_wait_s` (`[5, 15, 30]`), `min_interval_s` (`2.0`) | SerpAPI is used instead of DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is not `"duckduckgo"`. DuckDuckGo searches of all agents keep at least `min_interval_s` seconds apart, and a failed one is tried up to `attempts` times, waiting `retry_wait_s` seconds before each new try |
 | `wikipedia_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | The operator email is placed in the request `User-Agent`, as the Wikimedia API policy asks |
 | `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | Searches arXiv through arXiv's own API, with a 30 s timeout and 3 s between the requests of all agents on the machine; an arXiv ID in the query is looked up directly. The operator email is placed in the request `User-Agent` |
-| `visit_webpage` | – | Fetches a URL and returns the page as Markdown |
+| `visit_webpage` | `blocked_networks` (`[]`) | Fetches a public http or https URL and returns the page as Markdown. Non-public addresses, and any in `blocked_networks`, are refused, on every redirect too (see [`../docs/tools.md`](../docs/tools.md)) |
 | `read_file` | `max_rows` (`50`), `max_chars` (`20000`) | **Not enabled by default**; add it to a task through `extra_tools` |
 | `calculator` | – | Evaluates a `sympy` expression in a resource-limited subprocess |
 | `json_answer_tool` | `required_fields` (`[]`) | **Not enabled by default**; validates a JSON answer against required keys. Usually added per task |

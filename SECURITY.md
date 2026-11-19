@@ -34,7 +34,8 @@ Several tools reach out to third parties:
 
 - `web_search` uses DuckDuckGo by default, and SerpAPI when `SERPAPI_KEY` is set (`src/tools/definitions.py`).
 - `wikipedia_search` queries the Wikipedia API, and `arxiv_search` queries arXiv's own API (`export.arxiv.org`, `src/tools/searchtools.py`). Both send the configured operator email in the request `User-Agent`.
-- `visit_webpage` (`VisitWebpageTool`) performs an in-memory HTTP GET with a 20-second timeout and truncates the page to 40 000 characters before converting it to Markdown. The harness itself never writes fetched content to disk.
+- `visit_webpage` (`src/tools/webpage.py`, built on smolagents' `VisitWebpageTool`) performs an HTTP GET with a 20-second timeout, reads at most the first 10 MB, and converts the page to Markdown. A long page goes through the tool-output cap like any tool output, so it can be spilled to the run's artifacts folder, and the page is also kept in the run's trace.
+  It only fetches public http and https addresses: the host, and the host of every redirect (followed by hand, at most 5), must resolve only to public IP addresses. So loopback, private networks and link-local addresses such as cloud metadata services (`169.254.169.254`) are refused, and a task or an injected instruction can't make the agent read them. Two gaps remain: a host whose DNS answer changes between the check and the request (DNS rebinding), and internal services on public addresses, such as a university network reached over a VPN. List such networks in the tool's `blocked_networks` option, or run in an isolated network.
 
 Everything these tools return is untrusted and flows straight into the model's context. This is a classic *prompt-injection* surface: a page or a search snippet can contain instructions that steer the agent into reading local files, calling other tools, or generating code that does something other than the task. There is no sanitisation layer in between.
 
@@ -86,7 +87,7 @@ SciFlawBench Harness is research software developed at the University of Bonn, p
 
 ## Reporting a vulnerability
 
-If you believe you have found a security issue in the harness itself — a resolved secret leaking into the manifest, logs or traces, a code path in a tool that escapes its intended containment, a way for fetched web content to be written to disk, or similar — please report it privately rather than opening a public issue:
+If you believe you have found a security issue in the harness itself — a resolved secret leaking into the manifest, logs or traces, a code path in a tool that escapes its intended containment, fetched web content written anywhere but the run's own logs and artifacts, or similar — please report it privately rather than opening a public issue:
 
 - Preferred: GitHub's private vulnerability reporting (**Security** tab → "Report a vulnerability") on the repository, or
 - Email the maintainers listed in [`CODEOWNERS`](CODEOWNERS).
