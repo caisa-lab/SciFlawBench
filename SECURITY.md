@@ -32,9 +32,10 @@ The optional `read_file` tool (`src/tools/filetools.py`) resolves whatever path 
 
 Several tools reach out to third parties:
 
-- `web_search` uses DuckDuckGo by default, and SerpAPI when `SERPAPI_KEY` is set (`src/tools/definitions.py`).
+- `web_search` uses DuckDuckGo by default, SerpAPI when `SERPAPI_KEY` is set, and Tavily's search API when a config sets `engine: "tavily"` and `TAVILY_API_KEY` is set (`src/tools/definitions.py`). The agent's query goes to that service.
 - `wikipedia_search` queries the Wikipedia API, and `arxiv_search` queries arXiv's own API (`export.arxiv.org`, `src/tools/searchtools.py`). Both send the configured operator email in the request `User-Agent`.
-- `visit_webpage` (`VisitWebpageTool`) performs an in-memory HTTP GET with a 20-second timeout and truncates the page to 40 000 characters before converting it to Markdown. The harness itself never writes fetched content to disk.
+- `visit_webpage` (`src/tools/webpage.py`, built on smolagents' `VisitWebpageTool`) performs an HTTP GET with a 20-second timeout, reads at most the first 10 MB, and converts the page to Markdown. A long page goes through the tool-output cap like any tool output, so it can be spilled to the run's artifacts folder, and the page is also kept in the run's trace.
+  It only fetches public http and https addresses: the host, and the host of every redirect (followed by hand, at most 5), must resolve only to public IP addresses. So loopback, private networks and link-local addresses such as cloud metadata services (`169.254.169.254`) are refused, and a task or an injected instruction can't make the agent read them. Two gaps remain: a host whose DNS answer changes between the check and the request (DNS rebinding), and internal services on public addresses, such as a university network reached over a VPN. List such networks in the tool's `blocked_networks` option, or run in an isolated network.
 
 Everything these tools return is untrusted and flows straight into the model's context. This is a classic *prompt-injection* surface: a page or a search snippet can contain instructions that steer the agent into reading local files, calling other tools, or generating code that does something other than the task. There is no sanitisation layer in between.
 
@@ -54,7 +55,7 @@ parser and is **not** a general-purpose sandbox, so treat the expression as untr
 
 ## Task files, assets and ids are *integrity* controls
 
-SciFlawBench uses `task_id = md5(task)`, or for a task with a fixed id `prompt_md5 = md5(task)`, and verifies it when the task file is loaded (`src/core/tasks.py`); `python src/make_task_ids.py <task-file>` re-derives the hashes (and renames asset folders of md5 ids) after a prompt is edited. This detects **accidental** modification of a task set. It is not an authenticity or tamper-proofing mechanism: MD5 is collision-broken and the check is computed locally from the very file it validates, so anyone able to edit that file can recompute a matching id.
+SciFlawBench uses `task_id = md5(task)`, or for a task with a fixed id `prompt_md5 = md5(task)`, and verifies it when the task file is loaded (`src/core/tasks.py`); `python src/make_task_ids.py <task-file>` re-derives the hashes (and renames asset folders of md5 ids) after a prompt is edited; it refuses an old id that is not a plain folder name, so a rename never reaches outside the assets folder. This detects **accidental** modification of a task set. It is not an authenticity or tamper-proofing mechanism: MD5 is collision-broken and the check is computed locally from the very file it validates, so anyone able to edit that file can recompute a matching id.
 
 Run manifests (`src/core/manifest.py`) are stronger. They are SHA-256 based, written once per run and never overwritten, and a resumed run is refused unless its whole run signature still matches the manifest. `NO_REPRODUCIBILITY_GUARANTEES=true` downgrades that refusal to a warning; it is an explicit escape hatch, and runs produced under it are no longer verifiable.
 
@@ -63,6 +64,7 @@ Run manifests (`src/core/manifest.py`) are stronger. They are SHA-256 based, wri
 ## Credentials
 
 - API keys are read from environment variables only. `config.json` stores the *name* of the variable (`api_key_env`), never a key value; `python-dotenv` loads a local `.env` if present.
+- A key, token, password or credential header placed in a model's or the judge's `extra_kwargs` is refused when the config is loaded, because `extra_kwargs` is written to the run manifest as it is.
 - `.env` is listed in `.gitignore`. **Never commit it** and never paste keys into task files, configs or issue reports. On a cluster, prefer the scheduler's secret/environment mechanism.
 - The harness does not write resolved secrets into the run manifest, the aggregate results file or the per-task traces. If you find a code path that logs, serialises or otherwise persists a resolved secret value, that is a vulnerability — please report it (see below).
 
@@ -75,7 +77,7 @@ Per-task traces under `logs/<timestamp>/results/` hold the full event stream: pr
 
 1. Run under a dedicated unprivileged user, or inside a container/VM.
 2. Expose only the task file, its assets and a writable log directory to that environment. Do not mount `$HOME`, SSH keys, credential stores or production data.
-3. Export only the model-provider keys you need, and leave `SERPAPI_KEY` unset if you do not want third-party search.
+3. Export only the model-provider keys you need, and leave `SERPAPI_KEY` and `TAVILY_API_KEY` unset if you do not want third-party search.
 4. Review the task set and the agent prompts (`src/agents/prompts/`) before running it.
 5. Treat the run directory as disposable and its contents as sensitive.
 
@@ -85,7 +87,7 @@ SciFlawBench Harness is research software developed at the University of Bonn, p
 
 ## Reporting a vulnerability
 
-If you believe you have found a security issue in the harness itself — a resolved secret leaking into the manifest, logs or traces, a code path in a tool that escapes its intended containment, a way for fetched web content to be written to disk, or similar — please report it privately rather than opening a public issue:
+If you believe you have found a security issue in the harness itself — a resolved secret leaking into the manifest, logs or traces, a code path in a tool that escapes its intended containment, fetched web content written anywhere but the run's own logs and artifacts, or similar — please report it privately rather than opening a public issue:
 
 - Preferred: GitHub's private vulnerability reporting (**Security** tab → "Report a vulnerability") on the repository, or
 - Email the maintainers listed in [`CODEOWNERS`](CODEOWNERS).

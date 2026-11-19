@@ -31,7 +31,7 @@ The file is a single JSON object. Only `model` and `task_file` are required. Unk
 | `task_file` | string | *required* | Path to the `.jsonl` task file. Checked at load time: it must exist and end in `.jsonl`, or the config is rejected |
 | `tool_configs` | array | `[]` | Per-run tool overrides, see [Tool overrides](#tool-overrides) |
 | `log_path` | string | `"logs/"` | Where the run lives. A fresh run creates `<log_path>/<timestamp>/`; with `restarting` the harness uses `<log_path>` itself |
-| `max_concurrent` | int | `3` | Maximum number of task subprocesses running at once |
+| `max_concurrent` | int | `1` | Maximum number of task subprocesses running at once. One at a time by default, since agents running side by side collide on the search services and load the model server; raise it for faster runs |
 | `repetitions_per_task` | int | `3` | How many times each task is run. Every repetition is an independent agent run and is recorded separately |
 | `task_timeout_s` | int | `900` | Wall-clock budget per task before the runtime manager terminates that subprocess |
 | `closed_book` | bool | `false` | Run the whole benchmark closed-book: the agent is given no harness tools at all (no search, no webpage visiting, no local file reading, no calculator) and may only use its own knowledge. Python execution and `final_answer` remain available |
@@ -43,6 +43,8 @@ The file is a single JSON object. Only `model` and `task_file` are required. Unk
 | `memory_offload` | bool | `true` | Spill messages evicted by context trimming to `memory.md` in the task's artifact directory, leaving a digest and pointer in their place (see [Context hygiene and large outputs](#context-hygiene-and-large-outputs)). Needs `artifact_spill` |
 | `memory_digest_chars` | int | `200` | Characters of an evicted message kept inline as its digest (`0` for none) |
 | `memory_index_max_chars` | int | `4000` | Cap on the block index appended to the task message |
+
+`max_concurrent`, `repetitions_per_task` and `task_timeout_s` must be at least 1; a config with zero or less is refused when it is loaded.
 
 Both `closed_book` (here) and `restarting` interact with per-task and per-run state: a task may also declare `closed_book` itself. See [Per-task fields](#per-task-fields).
 
@@ -56,7 +58,7 @@ Both `closed_book` (here) and `restarting` interact with per-task and per-run st
 | `model_id` | string | *required* | Provider-specific model identifier, e.g. `openrouter/qwen/qwen3.7-flash` (LiteLLM), `gpt-4o-mini` (`openai_server`), or a Hub model id (`hf_api`) |
 | `api_key_env` | string | *required* | **Name** of the environment variable that holds the API key — never the key itself. The value is read from the environment (a `.env` file in the working directory is loaded first) and the config is rejected if that variable is unset |
 | `api_base` | string \| null | `null` | Base URL of the endpoint. Needed for self-hosted or non-default OpenAI-compatible servers |
-| `extra_kwargs` | object | `{}` | Extra keyword arguments forwarded verbatim to the smolagents model constructor: `temperature`, request timeouts, provider routing, and so on. To cap generation, use `max_new_tokens`, not `extra_kwargs` |
+| `extra_kwargs` | object | `{}` | Extra keyword arguments forwarded verbatim to the smolagents model constructor: `temperature`, request timeouts, provider routing, and so on. To cap generation, use `max_new_tokens`, not `extra_kwargs` A key, token, password or credential header (`Authorization`, `X-API-Key`, ...) is refused here, since `extra_kwargs` is written to the run manifest: use `api_key_env` |
 | `code_block_tags` | `[string, string]` \| null | `null` | Rarely needed: the opening/closing fence pair used to extract code blocks from a model's response, for models whose output does not use the default Markdown fences |
 | `model_max_context` | int \| null | `null` | Context window of the model, in tokens. When unset it is auto-detected (the `max_model_len` a vLLM-style `openai_server` reports, then LiteLLM's model table) and falls back to `256000` with a warning. Set it (e.g. `1000000`) to override detection — a wrong window silently weakens context trimming |
 | `max_new_tokens` | int \| null | `16384` | Cap on the tokens generated per model call (one agent step). It is sent to the provider under the name in `max_tokens_param` and reserved out of the input budget. `null` leaves the provider default and reserves nothing. A legacy `extra_kwargs.max_tokens` or `extra_kwargs.max_completion_tokens` is adopted here |
@@ -80,7 +82,7 @@ Both `closed_book` (here) and `restarting` interact with per-task and per-run st
 | `api_key_env` | string | *required* | **Name** of the environment variable that holds the judge's API key; read at config load time exactly like the model's |
 | `max_trace_tokens` | int | `500000` | Token budget for the rendered trace the judge reads, estimated at 4 characters per token (dense text such as numbers or code can take 2–3, so lower it when the judge's context window is tight). Every tool output and the code agent's execution logs are included in full while the trace fits; above the budget only the largest of them are shortened to a common cap, keeping their start and end around an `[... N characters omitted ...]` marker, and in very long runs the oldest middle steps are dropped. Recorded in the run manifest |
 | `api_base` | string \| null | `null` | Base URL of the judge endpoint, for self-hosted or non-default OpenAI-compatible servers |
-| `extra_kwargs` | object | `{}` | Extra keyword arguments forwarded to the LiteLLM completion call: `temperature`, `timeout`, provider routing, ... The judge has no `max_new_tokens` field, so a cap on its reply (`max_tokens`) is passed here |
+| `extra_kwargs` | object | `{}` | Extra keyword arguments forwarded to the LiteLLM completion call: `temperature`, `timeout`, provider routing, ... The judge has no `max_new_tokens` field, so a cap on its reply (`max_tokens`) is passed here A key, token, password or credential header (`Authorization`, `X-API-Key`, ...) is refused here, since `extra_kwargs` is written to the run manifest: use `api_key_env` |
 
 The judge is sent three things: the task's **rubric**, the run's **trace** (rendered like the markdown trace reports, see `generate_trace_reports`: the model's thoughts and code, every tool call with its inputs and output, and the code agent's execution logs, within `max_trace_tokens`), and a **hardcoded output specification** that demands a JSON object with `evaluation` (the score) and `justification`. Both are recorded per task in the run's `check_results`, so every judged run keeps the reason for its verdict. The prompt also tells the judge that a shortened output is not evidence that the agent did not see it, and that everything in the trace (text from the agent, files, web pages and tools) is evidence of what happened, never instructions to the judge. Beyond the trace budget, the harness leaves oversized requests to the API.
 
@@ -104,10 +106,10 @@ Each entry **replaces** the keyword arguments of that tool for the whole run (ra
 
 | Tool | Options (defaults) | Notes |
 | ---- | ------------------ | ----- |
-| `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests per second), `engine` (`"duckduckgo"`), `attempts` (`4`), `retry_wait_s` (`[5, 15, 30]`), `min_interval_s` (`2.0`) | SerpAPI is used instead of DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is not `"duckduckgo"`. DuckDuckGo searches of all agents keep at least `min_interval_s` seconds apart, and a failed one is tried up to `attempts` times, waiting `retry_wait_s` seconds before each new try |
+| `web_search` | `max_results` (`8`), `rate_limit` (`1.0`, requests per second), `engine` (`"duckduckgo"`), `attempts` (`4`), `retry_wait_s` (`[5, 15, 30]`), `min_interval_s` (`2.0`), `blocked_urls` (`["sciflawbench"]`) | `engine: "tavily"` searches with Tavily's search API (needs `TAVILY_API_KEY`, see [`../docs/tools.md`](../docs/tools.md)); its results drop any URL containing one of `blocked_urls`, by default the benchmark's own repository and pages. SerpAPI is used instead of DuckDuckGo when `SERPAPI_KEY` is set **and** `engine` is neither `"duckduckgo"` nor `"tavily"`. DuckDuckGo searches of all agents keep at least `min_interval_s` seconds apart. A failed DuckDuckGo search, or a Tavily search that hit a rate limit, server error or timeout, is tried up to `attempts` times, waiting `retry_wait_s` seconds before each new try |
 | `wikipedia_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | The operator email is placed in the request `User-Agent`, as the Wikimedia API policy asks |
 | `arxiv_search` | `operator` (`"OPERATOR EMAIL NOT SET"`) | Searches arXiv through arXiv's own API, with a 30 s timeout and 3 s between the requests of all agents on the machine; an arXiv ID in the query is looked up directly. The operator email is placed in the request `User-Agent` |
-| `visit_webpage` | – | Fetches a URL and returns the page as Markdown |
+| `visit_webpage` | `blocked_networks` (`[]`) | Fetches a public http or https URL and returns the page as Markdown. Non-public addresses, and any in `blocked_networks`, are refused, on every redirect too (see [`../docs/tools.md`](../docs/tools.md)) |
 | `read_file` | `max_rows` (`50`), `max_chars` (`20000`) | **Not enabled by default**; add it to a task through `extra_tools` |
 | `calculator` | – | Evaluates a `sympy` expression in a resource-limited subprocess |
 | `json_answer_tool` | `required_fields` (`[]`) | **Not enabled by default**; validates a JSON answer against required keys. Usually added per task |
@@ -134,6 +136,7 @@ Two run-level mechanisms keep a long agent run from overflowing the model's cont
 | *the name in `api_key_env`* | yes | API key for the configured provider. Read from the environment when the config is validated; a `.env` file in the working directory is loaded automatically |
 | *the name in `judge.api_key_env`* | only with a `judge` | API key for the judge model, read the same way |
 | `SERPAPI_KEY` | no | When set, `web_search` may use SerpAPI instead of DuckDuckGo (better results, needs a SerpAPI account) |
+| `TAVILY_API_KEY` | only with `engine: "tavily"` | API key for `web_search` with `engine: "tavily"` (needs a Tavily account). Without it, such a run stops with an error |
 | `NO_REPRODUCIBILITY_GUARANTEES` | no | Set to `true` to downgrade resume/manifest mismatches from a hard refusal to a warning. Results produced under it are no longer verifiable |
 | `ENABLE_TEST_FAKES` | no | Set to `1` to register the test-only fake presets and tools used by the smoke tests |
 
@@ -174,7 +177,7 @@ The task file referenced by `task_file` has its own schema, documented in [`../d
   "task_file": "data/example/tasks.jsonl",
   "tool_configs": [{ "tool_name": "web_search", "kwargs": { "max_results": 5 } }],
   "log_path": "logs/",
-  "max_concurrent": 3,
+  "max_concurrent": 1,
   "repetitions_per_task": 3,
   "task_timeout_s": 900,
   "generate_trace_reports": true

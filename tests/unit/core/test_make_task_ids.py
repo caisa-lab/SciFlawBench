@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from core.task_ids import TASK_ID_PLACEHOLDER, authored_template, hash_prompt, recompute_task_ids, render_task
 
 STALE = "0" * 32
@@ -131,3 +133,36 @@ def test_rename_collision_aborts_without_writing(tmp_path):
     assert not report.applied
     assert task_file.read_text() == original
     assert (assets_dir / STALE).is_dir()
+
+
+@pytest.mark.parametrize("stale_id", ["../../../.git", "..", "sub/folder", "/an/absolute/path", "back\\slash"])
+def test_rename_refuses_an_id_that_is_not_a_plain_folder_name(tmp_path, stale_id):
+    """A stale id from the task file must never rename a folder outside the assets folder."""
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    assets_dir = repo / "data" / "tasks" / "assets"
+    (assets_dir / "sub" / "folder").mkdir(parents=True)
+    task_file = repo / "tasks.jsonl"
+    original = _line(stale_id, "a task that reads no files") + "\n"
+    task_file.write_text(original)
+
+    report = recompute_task_ids(task_file, assets_dir)
+
+    assert any("not a plain folder name" in error for error in report.errors)
+    assert not report.applied
+    assert task_file.read_text() == original
+    assert (repo / ".git" / "HEAD").is_file()
+    assert (assets_dir / "sub" / "folder").is_dir()
+    assert sorted(p.name for p in assets_dir.iterdir()) == ["sub"]
+
+
+def test_an_id_that_is_not_a_folder_name_is_fine_without_assets(tmp_path):
+    """With --skip-assets nothing is renamed, so such an id is simply replaced by its md5."""
+    task_file = tmp_path / "tasks.jsonl"
+    task_file.write_text(_line("../odd", "a task that reads no files") + "\n")
+
+    report = recompute_task_ids(task_file)
+
+    assert report.applied and not report.errors
+    assert report.changes[0].new_id == hash_prompt("a task that reads no files")

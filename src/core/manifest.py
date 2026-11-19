@@ -156,20 +156,27 @@ def build_run_signature(conf: RunConfig, tasks: list[Any]) -> dict[str, Any]:
     but kept out of the signature so a run can be resumed on a rebuilt environment.
     """
     _, assets_sha = assets_fingerprint(conf.task_file)
+    model = {
+        "provider": conf.model.provider,
+        "model_id": conf.model.model_id,
+        "api_base": conf.model.api_base,
+        "extra_kwargs": conf.model.extra_kwargs,
+        "code_block_tags": list(conf.model.code_block_tags) if conf.model.code_block_tags else None,
+        "model_max_context": conf.model.model_max_context,
+        "max_new_tokens": conf.model.max_new_tokens,
+    }
+    # Both change the requests sent to the model. They are recorded only when set away from their default, so a
+    # checkpoint written before they were recorded still resumes when it used the defaults.
+    if conf.model.max_tokens_param != "max_tokens":
+        model["max_tokens_param"] = conf.model.max_tokens_param
+    if conf.model.supports_stop is not None:
+        model["supports_stop"] = conf.model.supports_stop
     return {
         "task_set_sha256": hash_rows(tasks),
         "n_tasks": len(tasks),
         "task_file_sha256": hash_file(conf.task_file),
         "assets_sha256": assets_sha,
-        "model": {
-            "provider": conf.model.provider,
-            "model_id": conf.model.model_id,
-            "api_base": conf.model.api_base,
-            "extra_kwargs": conf.model.extra_kwargs,
-            "code_block_tags": list(conf.model.code_block_tags) if conf.model.code_block_tags else None,
-            "model_max_context": conf.model.model_max_context,
-            "max_new_tokens": conf.model.max_new_tokens,
-        },
+        "model": model,
         "judge": judge_fingerprint(conf),
         "tools": sorted((tool.model_dump(mode="json") for tool in conf.tool_configs), key=lambda t: t["tool_name"]),
         "prompts_sha256": prompts_fingerprint(),

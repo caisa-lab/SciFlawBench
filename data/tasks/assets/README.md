@@ -54,7 +54,7 @@ After editing a prompt, recompute its hash in one step:
 python src/make_task_ids.py data/tasks/v0/tasks.jsonl
 ```
 
-For a task with a fixed id it only updates `prompt_md5`; the id and the folder stay. For a task without a fixed id it rewrites the task file in place and renames `assets/<old id>/` to the new id (use `--skip-assets` to leave folders alone, or `--assets-dir DIR` if your assets live elsewhere).
+For a task with a fixed id it only updates `prompt_md5`; the id and the folder stay. For a task without a fixed id it rewrites the task file in place and renames `assets/<old id>/` to the new id (use `--skip-assets` to leave folders alone, or `--assets-dir DIR` if your assets live elsewhere). An old id that is not a plain folder name, such as one containing `/` or `..`, is refused and nothing is written, so a rename never reaches outside the assets folder.
 
 Use `--check` to verify without writing anything:
 

@@ -106,6 +106,15 @@ class RecomputeReport:
         return bool(self.changes)
 
 
+def is_folder_name(task_id: str) -> bool:
+    """Whether `task_id` names one folder directly inside the assets folder: no path separator, not `.` or `..`.
+
+    A stale id is read from the task file as it is, so without this check an id such as `../../../.git` (or an
+    absolute path, which `Path` joining puts in place of the assets folder) would rename a folder outside it.
+    """
+    return task_id not in ("", ".", "..") and "/" not in task_id and "\\" not in task_id
+
+
 def recompute_task_ids(
     task_file: Path,
     assets_dir: Path | None = None,
@@ -120,7 +129,8 @@ def recompute_task_ids(
     A task with a fixed id (one that records `prompt_md5`) keeps its id and its
     folder; only its `prompt_md5` is recomputed.
 
-    Nothing is written if any line fails to parse, or if a rename would clobber an
+    Nothing is written if any line fails to parse, if a stale id is not a plain folder
+    name (so no rename can reach outside `assets_dir`), or if a rename would clobber an
     existing folder, so the task file is never left pointing at a missing folder.
     """
     report = RecomputeReport(task_file=task_file)
@@ -171,6 +181,12 @@ def recompute_task_ids(
         for change in report.changes:
             if change.field != "task_id":
                 continue  # a fixed id keeps its folder
+            if not is_folder_name(change.old_id):
+                report.errors.append(
+                    f"line {change.line}: cannot rename the assets folder of task id {change.old_id!r}: "
+                    "it is not a plain folder name"
+                )
+                continue
             source = assets_dir / change.old_id
             destination = assets_dir / change.new_id
             if not source.is_dir():

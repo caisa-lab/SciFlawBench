@@ -20,7 +20,13 @@ from core.manifest import (
 )
 from core.task_ids import parse_task_id_slug, task_id_slug
 from core.tasks import TaskDef, completed_repetitions, run_task
-from evaluation.scoring import ScoreBoard, aggregate_scores, format_scoreboard, scoreboard_to_dict
+from evaluation.scoring import (
+    INFRASTRUCTURE_FAILURE,
+    ScoreBoard,
+    aggregate_scores,
+    format_scoreboard,
+    scoreboard_to_dict,
+)
 
 mp.set_start_method(
     "spawn", force=True
@@ -196,7 +202,7 @@ class RuntimeManager:
                     task=task, conf=self.full_conf, output_dir=self.results_dir, res_queue=self._result_queue
                 )
 
-                self._active[(task.task_id, repetition)] = {"proc": proc, "started": time.time()}
+                self._active[(task.task_id, repetition)] = {"proc": proc, "started": time.time(), "task": task}
 
                 if self.repetitions <= 1:
                     logger.info(f"Task id - ({task_id_slug(task.task_id)}) started")
@@ -205,6 +211,7 @@ class RuntimeManager:
 
             self._drain_results()
             self._check_timeouts()
+            self._reap_exited()
 
         self._drain_remaining()
         self.write_scores()
@@ -317,6 +324,41 @@ class RuntimeManager:
         for task_id, rep in to_kill:
             del self._active[(task_id, rep)]
 
+    def _reap_exited(self, grace_s: float = 10.0):
+        """
+        Record a task process that exited without sending its result, so the run doesn't wait for its timeout.
+
+        A task process puts its result on the queue before it exits, so a process that is no longer alive and still
+        active `grace_s` seconds later (time for its last message to be drained) died before sending it, for example
+        because writing its record crashed (issue #68). It is recorded as an infrastructure failure: it is listed
+        with the unscored runs, and resuming the run runs it again.
+
+        Args:
+            grace_s (float): seconds a process may be gone before its run is recorded as lost
+        """
+        now = time.time()
+        for (task_id, repetition), entry in list(self._active.items()):
+            if entry["proc"].is_alive():
+                continue
+            entry.setdefault("exited", now)
+            if now - entry["exited"] < grace_s:
+                continue
+            del self._active[(task_id, repetition)]
+            task = entry.get("task")
+            to_log = {
+                "id": task_id,
+                "repetition": repetition,
+                "status": "exited",
+                "failure_kind": INFRASTRUCTURE_FAILURE,
+                "error_type": "process_exited",
+                "error": f"the task process exited with code {entry['proc'].exitcode} before sending its result",
+                "time_elapsed": now - entry["started"],
+            }
+            if task is not None:
+                to_log["task"] = task.rendered_task
+                to_log["failure_modes"] = task.failure_modes.model_dump()
+            self._handle_message({"task_id": task_id, "repetition": repetition, "kind": "exited", "to_log": to_log})
+
     def _handle_message(self, msg: dict[str, Any]):
         """
         takes a message in and handles logging according to what the message content is
@@ -340,6 +382,8 @@ class RuntimeManager:
                     )
             case "killed":
                 logger.info(f"Task: {task_id_slug(task_id)}.{repetition} reaped. Killed by timeout.")
+            case "exited":
+                logger.warning(f"Task: {task_id_slug(task_id)}.{repetition} exited without a result: {log['error']}")
             case _:
                 logger.info(f"Task: {task_id_slug(task_id)}.{repetition} finished with undefined state...")
 

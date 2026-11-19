@@ -117,7 +117,7 @@ src/
 ├── tools/
 │   ├── misc.py                 # miscellaneous custom tool classes that get registered
 │   ├── definitions.py          # tool definitions and the tool registry
-│   ├── searchtools.py          # contains the searchtools available to the agents: (arxiv, SerpAPI, wikipedia)
+│   ├── searchtools.py          # contains the searchtools available to the agents: (arxiv, DuckDuckGo, SerpAPI, Tavily, wikipedia)
 │   ├── artifacts.py            # artifact store: spills oversized tool outputs to disk
 │   ├── artifacttools.py        # retrieval tools for spilled outputs (search_artifact/read_artifact/list_artifacts)
 │   └── base.py                 # the wrapper used by every tool
@@ -242,7 +242,9 @@ Every score averages each task's runs (repetitions) first and then the tasks, so
 A run that raises, or is killed at `task_timeout_s`, is either the model's failure or the infrastructure's; its record says which in `failure_kind`, with the class of the error in `error_type`:
 
 - **model** — the run scores 0 overall and for every mode it declares. This is any error of the agent run not listed below, including on purpose a context-window overflow (`ContextWindowExceededError`) and a provider refusing the conversation's content (`ContentPolicyViolationError`, `BlockedPiiEntityError`), which a re-run would only repeat; and a kill whose last recorded event is anything but the start of a tool call, e.g. a model call that never returned (`model_call_start`).
-- **infrastructure** — the run is left out of the scores and listed under `infrastructure_failures` in `scores.json` and at the end of `run_summary.log`: connection, authentication, rate-limit, unknown-model and provider (5xx) errors, requests the provider rejects for an unsupported parameter (litellm's `UnsupportedParamsError`, or an OpenAI 400 coded `unsupported_parameter` or `unsupported_value`), litellm budget errors, errors while the harness builds the agent or grades its answer, and a kill inside a tool call (last event `tool_call_start`) or before the agent recorded any event. [Resuming the run](#resuming-an-interrupted-run) runs them again.
+- **infrastructure** — the run is left out of the scores and listed under `infrastructure_failures` in `scores.json` and at the end of `run_summary.log`: connection, authentication, rate-limit, unknown-model and provider (5xx) errors, requests the provider rejects for an unsupported parameter (litellm's `UnsupportedParamsError`, or an OpenAI 400 coded `unsupported_parameter` or `unsupported_value`), litellm budget errors, errors while the harness builds the agent or grades its answer, a kill inside a tool call (last event `tool_call_start`) or before the agent recorded any event, and a task process that ended without sending its result (`error_type` `process_exited`, status `exited`), which the harness records about 10 seconds after the process ends instead of waiting for `task_timeout_s`. [Resuming the run](#resuming-an-interrupted-run) runs them again.
+
+A trace value that can't be copied into the run's record, such as a module or an open file that the agent's code passed to a tool, is kept as its `repr`, so the record is still written.
 
 The kind is decided by the error's type (searching its chain of causes, since smolagents wraps a provider's error in an `AgentGenerationError`), never by its message. Runs recorded before `failure_kind` existed are scored as before: one that raised or was killed has no checks and is left out. The failure-mode taxonomy itself is documented in [`docs/failure-modes.md`](docs/failure-modes.md).
 
@@ -282,7 +284,7 @@ Point `log_path` at the interrupted run's directory and set `restarting` to `tru
 }
 ```
 
-Repetitions already recorded under `results/` are skipped and everything else is re-run, including repetitions that failed because of the infrastructure and repetitions killed at the timeout (which are never recorded there); a repetition's new record then replaces its old one in the scores, which also makes `scores.json` of a resumed run count every repetition once. Before that, the harness recomputes this run's *signature* and compares it with the manifest. If anything that affects results has changed — the task set, the local assets, the prompts, the model or tool configuration, the budget — the run is **refused**:
+Repetitions already recorded under `results/` are skipped and everything else is re-run, including repetitions that failed because of the infrastructure and repetitions killed at the timeout (which are never recorded there); a repetition's new record then replaces its old one in the scores, which also makes `scores.json` of a resumed run count every repetition once. Before that, the harness recomputes this run's *signature* and compares it with the manifest. If anything that affects results has changed — the task set, the local assets, the prompts, the model configuration (including `max_tokens_param` and `supports_stop` when set), the tool configuration, the budget — the run is **refused**:
 
 ```
 Refusing to resume: the checkpoint does not match this run.
