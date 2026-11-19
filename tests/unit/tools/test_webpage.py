@@ -5,7 +5,7 @@ import pytest
 import requests
 
 from tools.definitions import tool_registry
-from tools.webpage import MAX_REDIRECTS, PublicVisitWebpageTool
+from tools.webpage import MAX_PAGE_BYTES, MAX_REDIRECTS, PublicVisitWebpageTool
 
 DNS = {
     "example.org": ["93.184.215.14"],
@@ -17,9 +17,21 @@ DNS = {
 
 
 class _FakeReply:
-    def __init__(self, text="", status_code=200, location=None):
-        self.text, self.status_code = text, status_code
+    def __init__(self, text="", status_code=200, location=None, encoding="utf-8"):
+        self.content, self.status_code, self.encoding = text.encode(encoding), status_code, encoding
         self.headers = {"Location": location} if location else {}
+        self.chunks_read = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def iter_content(self, chunk_size):
+        for start in range(0, len(self.content), chunk_size):
+            self.chunks_read += 1
+            yield self.content[start : start + chunk_size]
 
     @property
     def is_redirect(self):
@@ -45,8 +57,8 @@ def web(monkeypatch):
 
     requests_made, replies = [], []
 
-    def fake_get(url, timeout, allow_redirects):
-        requests_made.append({"url": url, "timeout": timeout, "allow_redirects": allow_redirects})
+    def fake_get(url, timeout, allow_redirects, stream):
+        requests_made.append({"url": url, "timeout": timeout, "allow_redirects": allow_redirects, "stream": stream})
         return replies.pop(0)
 
     monkeypatch.setattr("tools.webpage.socket.getaddrinfo", fake_getaddrinfo)
@@ -59,7 +71,9 @@ def test_a_public_page_is_fetched_and_converted_to_markdown(web):
     replies.append(_FakeReply("<h1>GW190521</h1><p>A heavy merger.</p>"))
     res = PublicVisitWebpageTool().forward("https://example.org/gw190521")
     assert "GW190521" in res and "A heavy merger." in res
-    assert requests_made == [{"url": "https://example.org/gw190521", "timeout": 20, "allow_redirects": False}]
+    assert requests_made == [
+        {"url": "https://example.org/gw190521", "timeout": 20, "allow_redirects": False, "stream": True}
+    ]
 
 
 @pytest.mark.parametrize(
@@ -135,3 +149,18 @@ def test_the_registry_builds_the_public_only_tool(monkeypatch):
     assert tool.name == "visit_webpage"
     assert tool.blocked_networks == [ipaddress.ip_network("93.184.216.0/24")]
     assert tool_registry.get("visit_webpage")(watcher=None)._wrapped.max_output_length == 10**9
+
+
+def test_only_the_first_part_of_a_huge_page_is_read(web):
+    _, replies = web
+    huge = _FakeReply("<p>" + "x" * (3 * MAX_PAGE_BYTES) + "</p>")
+    replies.append(huge)
+    res = PublicVisitWebpageTool().forward("https://example.org/huge")
+    assert res.startswith(f"_Only the first {MAX_PAGE_BYTES // 2**20} MB of this page were read._")
+    assert huge.chunks_read * 64 * 1024 < 2 * MAX_PAGE_BYTES  # it stopped reading, not read it all and cut
+
+
+def test_the_page_is_decoded_with_its_declared_encoding(web):
+    _, replies = web
+    replies.append(_FakeReply("<p>Gr\u00fc\u00dfe</p>", encoding="latin-1"))
+    assert "Gr\u00fc\u00dfe" in PublicVisitWebpageTool().forward("https://example.org/latin")

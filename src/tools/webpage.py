@@ -12,6 +12,7 @@ from smolagents import VisitWebpageTool
 
 MAX_REDIRECTS = 5
 TIMEOUT_S = 20
+MAX_PAGE_BYTES = 10 * 1024 * 1024  # read at most this much of a page, so a huge response can't fill the memory
 
 
 class BlockedURLError(ValueError):
@@ -26,7 +27,8 @@ class PublicVisitWebpageTool(VisitWebpageTool):
     service and pass the answer on (server-side request forgery). Here the URL must be http or https, and its host must
     resolve only to public addresses outside `blocked_networks`. Redirects are followed by hand, at most
     `MAX_REDIRECTS`, and every new URL is checked the same way. A refused URL returns an error message, as a failed
-    fetch does; a page that is fetched is converted and truncated exactly as by the upstream tool.
+    fetch does. At most `MAX_PAGE_BYTES` of a page are read; the rest is converted and truncated exactly as by the
+    upstream tool.
 
     Not covered: a host whose DNS answer changes between the check and the request (DNS rebinding), and internal
     services on public addresses (for example a university network reached over a VPN), unless their networks are
@@ -39,9 +41,11 @@ class PublicVisitWebpageTool(VisitWebpageTool):
 
     def forward(self, url: str) -> str:
         try:
-            response = self._fetch(url)
-            response.raise_for_status()
-            markdown_content = re.sub(r"\n{3,}", "\n\n", markdownify(response.text).strip())
+            page, cut = self._fetch(url)
+            markdown_content = re.sub(r"\n{3,}", "\n\n", markdownify(page).strip())
+            if cut:  # first, so a truncation of the content can't remove it
+                note = f"_Only the first {MAX_PAGE_BYTES // 2**20} MB of this page were read._"
+                markdown_content = f"{note}\n\n{markdown_content}"
             return self._truncate_content(markdown_content, self.max_output_length)
         except BlockedURLError as exc:
             return f"Error fetching the webpage: {exc}"
@@ -52,14 +56,30 @@ class PublicVisitWebpageTool(VisitWebpageTool):
         except Exception as exc:
             return f"An unexpected error occurred: {exc}"
 
-    def _fetch(self, url: str) -> requests.Response:
+    def _fetch(self, url: str) -> tuple[str, bool]:
+        """The page's text, and whether it was cut at `MAX_PAGE_BYTES`."""
         for _ in range(MAX_REDIRECTS + 1):
             self._check(url)
-            response = requests.get(url, timeout=TIMEOUT_S, allow_redirects=False)
-            if not response.is_redirect:
-                return response
-            url = urljoin(url, response.headers["Location"])
+            with requests.get(url, timeout=TIMEOUT_S, allow_redirects=False, stream=True) as response:
+                if response.is_redirect:
+                    url = urljoin(url, response.headers["Location"])
+                    continue
+                response.raise_for_status()
+                return self._read(response)
         raise requests.exceptions.TooManyRedirects(f"more than {MAX_REDIRECTS} redirects")
+
+    @staticmethod
+    def _read(response: requests.Response) -> tuple[str, bool]:
+        data, cut = bytearray(), False
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            data += chunk
+            if len(data) > MAX_PAGE_BYTES:
+                data, cut = data[:MAX_PAGE_BYTES], True
+                break
+        try:
+            return bytes(data).decode(response.encoding or "utf-8", errors="replace"), cut
+        except LookupError:  # an encoding name Python doesn't know
+            return bytes(data).decode("utf-8", errors="replace"), cut
 
     def _check(self, url: str) -> None:
         parts = urlsplit(url)
