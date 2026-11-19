@@ -1,9 +1,10 @@
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, ValidationInfo, field_validator, model_validator
 
 from tools.base import ToolDef
 
@@ -30,6 +31,27 @@ def read_env_api_key(api_key_env: str) -> str:
 
 # the request parameters a generation cap can be sent under (see ModelConfig.max_tokens_param)
 MAX_TOKENS_PARAMS = ("max_tokens", "max_completion_tokens")
+
+# `extra_kwargs` is written to the run manifest as it is, so a credential must not go there: keyword arguments named
+# like one (api_key, client_secret, password, access_token, vertex_credentials, ...) and request headers named like one
+# (Authorization, X-API-Key, Cookie, ...) are refused.
+_CREDENTIAL_KWARG = re.compile(r"(?:^|_)(?:api_?key|access_key|secret|password|token|credentials?)$", re.IGNORECASE)
+_CREDENTIAL_HEADER = re.compile(r"authorization|api[-_]?key|token|secret|cookie", re.IGNORECASE)
+_HEADER_KWARGS = ("headers", "extra_headers", "default_headers")
+
+
+def refuse_credentials(extra_kwargs: dict) -> dict:
+    """Refuse a credential in `extra_kwargs`, which the run manifest records; the key belongs in `api_key_env`."""
+    for name, value in extra_kwargs.items():
+        found = f"extra_kwargs.{name}" if _CREDENTIAL_KWARG.search(str(name)) else None
+        if found is None and name in _HEADER_KWARGS and isinstance(value, dict):
+            found = next((f"the {header!r} header" for header in value if _CREDENTIAL_HEADER.search(str(header))), None)
+        if found:
+            raise ValueError(
+                f"{found} looks like a credential, and extra_kwargs is written to the run manifest: "
+                "put the key in the environment variable named by api_key_env instead"
+            )
+    return extra_kwargs
 
 
 class ModelConfig(BaseModel):
@@ -69,6 +91,11 @@ class ModelConfig(BaseModel):
     supports_stop: bool | None = None
 
     _api_key: str = PrivateAttr()
+
+    @field_validator("extra_kwargs")
+    @classmethod
+    def extra_kwargs_hold_no_credentials(cls, v: dict) -> dict:
+        return refuse_credentials(v)
 
     @field_validator("model_max_context", "max_new_tokens")
     @classmethod
@@ -146,6 +173,11 @@ class JudgeConfig(BaseModel):
 
     _api_key: str = PrivateAttr()
 
+    @field_validator("extra_kwargs")
+    @classmethod
+    def extra_kwargs_hold_no_credentials(cls, v: dict) -> dict:
+        return refuse_credentials(v)
+
     @field_validator("max_trace_tokens")
     @classmethod
     def trace_budget_is_positive(cls, v: int) -> int:
@@ -219,6 +251,14 @@ class RunConfig(BaseModel):
         """A zero digest/index is allowed (it just omits them); a negative one is a mistake."""
         if v < 0:
             raise ValueError("memory limits must not be negative")
+        return v
+
+    @field_validator("max_concurrent", "repetitions_per_task", "task_timeout_s")
+    @classmethod
+    def scheduling_values_are_positive(cls, v: int, info: ValidationInfo) -> int:
+        """Reject zero or less: no task would ever start, every task would time out at once, or nothing would run."""
+        if v < 1:
+            raise ValueError(f"{info.field_name} must be at least 1, got {v}")
         return v
 
     @field_validator("task_file")

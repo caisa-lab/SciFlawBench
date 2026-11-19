@@ -155,3 +155,52 @@ def test_judge_trace_budget_has_a_default_and_must_be_positive(monkeypatch):
     assert JudgeConfig(model_id="m", api_key_env="JUDGE_KEY", max_trace_tokens=100_000).max_trace_tokens == 100_000
     with pytest.raises(ValidationError):
         JudgeConfig(model_id="m", api_key_env="JUDGE_KEY", max_trace_tokens=0)
+
+
+@pytest.mark.parametrize("field", ["max_concurrent", "repetitions_per_task", "task_timeout_s"])
+@pytest.mark.parametrize("value", [0, -1])
+def test_scheduling_values_must_be_at_least_one(tmp_path, monkeypatch, field, value):
+    """max_concurrent 0 would hang the run, a timeout of 0 would kill every task, 0 repetitions would run nothing."""
+    with pytest.raises(ValidationError, match=f"{field} must be at least 1"):
+        _conf(tmp_path, monkeypatch, **{field: value})
+
+
+def test_scheduling_values_of_one_are_accepted(tmp_path, monkeypatch):
+    conf = _conf(tmp_path, monkeypatch, max_concurrent=1, repetitions_per_task=1, task_timeout_s=1)
+    assert (conf.max_concurrent, conf.repetitions_per_task, conf.task_timeout_s) == (1, 1, 1)
+
+
+@pytest.mark.parametrize(
+    "extra_kwargs",
+    [
+        {"api_key": "sk-123"},
+        {"apikey": "sk-123"},
+        {"client_secret": "s"},
+        {"password": "p"},
+        {"access_token": "t"},
+        {"azure_ad_token": "t"},
+        {"aws_secret_access_key": "k"},
+        {"vertex_credentials": "{}"},
+        {"extra_headers": {"Authorization": "Bearer sk-123"}},
+        {"headers": {"X-API-Key": "k"}},
+        {"default_headers": {"Cookie": "session=1"}},
+    ],
+)
+def test_credentials_in_extra_kwargs_are_refused(extra_kwargs):
+    """extra_kwargs is written to the run manifest, so a key there would end up in the logs."""
+    with pytest.raises(ValidationError, match="looks like a credential"):
+        _model(extra_kwargs=extra_kwargs)
+    with pytest.raises(ValidationError, match="looks like a credential"):
+        JudgeConfig(model_id="fake", api_key_env="FAKE_KEY", extra_kwargs=extra_kwargs)
+
+
+def test_ordinary_extra_kwargs_are_kept():
+    extra = {
+        "temperature": 0.2,
+        "max_tokens": 4096,
+        "timeout": 60,
+        "extra_headers": {"HTTP-Referer": "https://example.org", "X-Title": "SciFlawBench"},
+        "reasoning_effort": "low",
+    }
+    assert _model(extra_kwargs=dict(extra)).extra_kwargs["extra_headers"] == extra["extra_headers"]
+    assert JudgeConfig(model_id="fake", api_key_env="FAKE_KEY", extra_kwargs=extra).extra_kwargs == extra

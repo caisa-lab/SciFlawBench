@@ -1,7 +1,8 @@
 name: task stats
 
-# Runs after a merge that changes the task set. Only `push` to main can start it, so a pull request's own
-# code never runs here. Commits made with the built-in token don't start other workflows, so it can't loop.
+# Runs after a merge that changes the task set, or by hand. Only `push` to main can start it automatically, so a pull
+# request's own code never runs here; a run started by hand on another branch is skipped, since it would push that
+# branch's commits to main. Commits made with the built-in token don't start other workflows, so it can't loop.
 on:
   push:
     branches: [main]
@@ -17,6 +18,7 @@ concurrency:
 
 jobs:
   update:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     steps:
