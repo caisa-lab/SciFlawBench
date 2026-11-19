@@ -63,6 +63,7 @@ Run manifests (`src/core/manifest.py`) are stronger. They are SHA-256 based, wri
 ## Credentials
 
 - API keys are read from environment variables only. `config.json` stores the *name* of the variable (`api_key_env`), never a key value; `python-dotenv` loads a local `.env` if present.
+- A key, token, password or credential header placed in a model's or the judge's `extra_kwargs` is refused when the config is loaded, because `extra_kwargs` is written to the run manifest as it is.
 - `.env` is listed in `.gitignore`. **Never commit it** and never paste keys into task files, configs or issue reports. On a cluster, prefer the scheduler's secret/environment mechanism.
 - The harness does not write resolved secrets into the run manifest, the aggregate results file or the per-task traces. If you find a code path that logs, serialises or otherwise persists a resolved secret value, that is a vulnerability — please report it (see below).
 
