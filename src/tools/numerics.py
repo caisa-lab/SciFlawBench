@@ -131,6 +131,9 @@ def least_squares_fit(design, data, sigma=None, covariance=None) -> dict:
         c = _square(covariance, "covariance", MAX_DIM)
         if c.shape[0] != m:
             raise NumericsError("covariance size must equal the data length")
+        # Cholesky reads only one triangle, so it would accept a nonsymmetric matrix that the solves below then use
+        if not np.allclose(c, c.T, rtol=1e-10, atol=1e-12 * float(np.max(np.abs(c)))):
+            raise NumericsError("covariance must be symmetric positive-definite")
         try:
             np.linalg.cholesky(c)
         except np.linalg.LinAlgError as exc:

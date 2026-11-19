@@ -282,7 +282,7 @@ Point `log_path` at the interrupted run's directory and set `restarting` to `tru
 }
 ```
 
-Repetitions already recorded under `results/` are skipped and everything else is re-run, including repetitions that failed because of the infrastructure and repetitions killed at the timeout (which are never recorded there); a repetition's new record then replaces its old one in the scores, which also makes `scores.json` of a resumed run count every repetition once. Before that, the harness recomputes this run's *signature* and compares it with the manifest. If anything that affects results has changed — the task set, the local assets, the prompts, the model or tool configuration, the budget — the run is **refused**:
+Repetitions already recorded under `results/` are skipped and everything else is re-run, including repetitions that failed because of the infrastructure and repetitions killed at the timeout (which are never recorded there); a repetition's new record then replaces its old one in the scores, which also makes `scores.json` of a resumed run count every repetition once. Before that, the harness recomputes this run's *signature* and compares it with the manifest. If anything that affects results has changed — the task set, the local assets, the prompts, the model configuration (including `max_tokens_param` and `supports_stop` when set), the tool configuration, the budget — the run is **refused**:
 
 ```
 Refusing to resume: the checkpoint does not match this run.
