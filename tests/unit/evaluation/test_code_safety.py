@@ -93,3 +93,9 @@ def test_check_is_labelled_and_carries_the_report():
 
 def test_check_passes_on_a_run_without_code():
     assert code_safety_check([]).passed is True
+
+
+def test_a_bare_word_like_sys_is_not_a_sensitive_path():
+    assert _scan("name = 'sys'\nprint(name)")["severity"] == "clean"
+    assert _scan("print(open('/sys/kernel/hostname').read())")["flagged"] is True
+    assert _scan("for d in ['/root', '/home']:\n    print(d)")["flagged"] is True
