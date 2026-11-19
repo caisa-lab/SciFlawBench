@@ -100,6 +100,7 @@ can only be resumed while it is still graded by the same judge. The judge's API 
 - **What is recorded:** each check stores `judge_model` (`majority of <judge>, <judge>, ...`), every judge's verdict and justification under `votes`, and `tie`. Its justification lists the votes (`2 of 3 judges passed.` followed by one line per judge).
 - **Resuming:** the manifest records every judge, in order, and the majority rule, so a run resumes only with the same panel. A `judges` list with one judge is recorded exactly like `judge`.
 - **Cost:** each check costs one call per judge.
+- **Other judges or rules afterwards:** `python -m utils.rescore_votes logs/<run>` recomputes the run's scores from the stored votes, with no new judge calls. It can count one judge alone (`--judges glm`), a subset of the judges, or require every judge to pass (`--rule unanimous`). It prints the scores like `run_summary.log` and, with `--out`, writes them like `scores.json`. The run's own scores are left unchanged.
 
 The example configuration uses a panel of `z-ai/glm-5.3-flash`, `openai/gpt-5-mini` and `deepseek/deepseek-v4.1-flash-1017`. Re-grading 214 rubric verdicts of GPT-5.5, it agreed with GPT-5.5 on 93.0% of them (Cohen's κ 0.86) at about a sixth of the cost, and it leaned lenient, most on reasoning rubrics ([#67](https://github.com/caisa-lab/SciFlawBench/issues/67)). `openai/gpt-5-mini` reads at most 272k input tokens, so its `max_trace_tokens` is set to 250000. Scores graded by different judges or panels are not comparable.
 

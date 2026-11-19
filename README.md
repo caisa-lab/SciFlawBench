@@ -248,7 +248,7 @@ A trace value that can't be copied into the run's record, such as a module or an
 
 The kind is decided by the error's type (searching its chain of causes, since smolagents wraps a provider's error in an `AgentGenerationError`), never by its message. Runs recorded before `failure_kind` existed are scored as before: one that raised or was killed has no checks and is left out. The failure-mode taxonomy itself is documented in [`docs/failure-modes.md`](docs/failure-modes.md).
 
-Judge checks (`judge:rubric`) are graded by the run's `judge`, or by a panel of `judges` that decides by majority vote (see [Judge settings](examples/README.md#judge-settings)). Different judges give different scores, so compare only runs graded by the same judge or panel.
+Judge checks (`judge:rubric`) are graded by the run's `judge`, or by a panel of `judges` that decides by majority vote (see [Judge settings](examples/README.md#judge-settings)). Different judges give different scores, so compare only runs graded by the same judge or panel. A panel stores every judge's vote, so [`utils/rescore_votes.py`](utils/rescore_votes.py) can recompute a panel run's scores for one judge alone or with another rule, without new judge calls.
 
 Every run that produced an answer also gets the automatic `code_safety` check (see [`docs/failure-modes.md`](docs/failure-modes.md)). Since that check was added (#78), each run has one more check, so overall, family and per-task scores recorded before it are not comparable with later ones; the scores of the other failure modes are unchanged.
 
