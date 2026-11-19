@@ -1,4 +1,3 @@
-import dataclasses
 import fcntl
 import json
 import logging
@@ -15,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from agents.base import build_agent
 from core.config import DEFAULT_MAX_TRACE_TOKENS, RunConfig
-from core.events import AgentEvent, EventType, EventWatcher, failed_tool_calls
+from core.events import AgentEvent, EventType, EventWatcher, event_record, failed_tool_calls
 from core.task_ids import FIXED_ID_PATTERN, TaskId, hash_prompt, render_task, task_id_slug
 from evaluation.base import VerificationResult, VerifierContext, VerifierDef, kwargs_problem, run_check, wants_context
 from evaluation.definitions import verifier_registry
@@ -288,7 +287,7 @@ def build_verifier_context(
             "task": prompt,
             "output": output,
             "success": success,
-            "full_trace": [dataclasses.asdict(event) for event in events],
+            "full_trace": [event_record(event) for event in events],
         },
         max_tokens=trace_token_budget(run_config),
     )
@@ -331,7 +330,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
     def handle_sigterm(
         *args,
     ):  # this function runs if this task ever gets terminated by the manager  # TODO: unused args?
-        to_log["last_event"] = dataclasses.asdict(events[-1]) if events else None  # type: ignore
+        to_log["last_event"] = event_record(events[-1]) if events else None  # type: ignore
         to_log["status"] = "terminated"
         to_log["failure_kind"] = timeout_failure_kind(events[-1] if events else None)
         to_log["error_type"] = "task_timeout"
@@ -341,7 +340,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
         res_queue.put({"task_id": task.task_id, "repetition": task.repetition, "kind": "killed", "to_log": to_log})
         try:
             partial_path = output_dir / f"{task_id_slug(task.task_id)}.{task.repetition}.partial.json"
-            partial_path.write_text(json.dumps([dataclasses.asdict(e) for e in events]))
+            partial_path.write_text(json.dumps([event_record(e) for e in events]))
         except Exception:
             pass
 
@@ -416,7 +415,7 @@ def run_task(task: TaskDef, run_config: RunConfig, output_dir: Path, res_queue: 
         output=out,
         success=success,
         error=error_str,
-        full_trace=[dataclasses.asdict(event) for event in events],
+        full_trace=[event_record(event) for event in events],
         failure_modes=task.failure_modes,
         check_results=verifier_results,
         failure_kind=failure_kind,
