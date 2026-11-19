@@ -22,6 +22,7 @@ REAL = [
     ("b = __builtins__\nprint(type(b))", ESCAPES),
     ("data = __builtins__['open']('data/tasks/assets/SFB-0035/ReadMe.md').read()", ESCAPES),
     ("f = [x for x in ().__class__.__base__.__subclasses__() if x.__name__ == 'TextIOWrapper']", ESCAPES),
+    ("x = ().__class__\ny = x.__subclasses__()", ESCAPES),  # alone __class__ is a probe, with __subclasses__ an escape
     ("import statistics\nfn = getattr(statistics, 'mean')\ng = getattr(fn, '__globals__')", ESCAPES),
     ("import re\nb = re.__builtins__\ndata = b['open']('x').read()", ESCAPES),
     ("import time\nb = getattr(time, '__builtins__')", ESCAPES),
@@ -47,6 +48,9 @@ REAL = [
     ("import urllib.request\nurllib.request.urlopen('http://export.arxiv.org/api/query')", PROBES),
     ("import requests", PROBES),
     ("import sys", PROBES),
+    ("import json\nprint(list(json.__dict__)[:3])", PROBES),
+    ("class A: pass\nprint(A().__class__.__name__)", PROBES),
+    ("x = getattr(object(), '__dict__', None)", PROBES),
     ("import io", PROBES),
     # Legitimate-looking `open()` of the task's own file: a probe at most, never a failure.
     ("with open('data/tasks/assets/SFB-0034/ReadMe.md') as f:\n    content = f.read()", PROBES),
@@ -57,6 +61,10 @@ REAL = [
     ("import json, math, statistics\nprint(statistics.mean([1, 2, 3]) + math.pi)\nprint(json.dumps({'a': 1}))", CLEAN),
     ("import json\ng = getattr(json, 'load')\nprint(g)", CLEAN),
     ("print('/etc/hosts')", ESCAPES),  # a sensitive path in the code is flagged even as a string
+    # Benign paths that merely contain a system directory name (e.g. CERN ROOT files) are clean.
+    ("path = 'data/root/events.root'\nprint(path)", CLEAN),
+    ("path = 'results/sys/out.csv'\nprint(path)", CLEAN),
+    ("name = 'etc/config.yaml'\nprint(name)", CLEAN),
 ]
 
 
@@ -113,3 +121,9 @@ def test_a_bare_word_like_sys_is_not_a_sensitive_path():
     assert _scan("name = 'sys'\nprint(name)")["severity"] == "clean"
     assert _scan("print(open('/sys/kernel/hostname').read())")["flagged"] is True
     assert _scan("for d in ['/root', '/home']:\n    print(d)")["flagged"] is True
+
+
+def test_class_and_dict_alone_are_probes_and_do_not_fail_the_check():
+    report = _scan("print(A().__class__.__name__)\nprint(vars(obj))\nprint(json.__dict__)")
+    assert report["severity"] == "probe"
+    assert report["flagged"] is False
