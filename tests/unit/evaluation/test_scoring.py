@@ -63,8 +63,13 @@ def test_failure_modes_default_both_families_to_empty_lists_when_absent():
 
 
 def test_failure_modes_deduplicate_preserving_order():
-    modes = FailureModes(quantitative=["correctness", "correctness", "code_safety"])
-    assert modes.quantitative == ["correctness", "code_safety"]
+    modes = FailureModes(quantitative=["correctness", "correctness", "correct_tool_calls"])
+    assert modes.quantitative == ["correctness", "correct_tool_calls"]
+
+
+def test_a_task_cannot_declare_code_safety_because_every_run_is_graded_on_it():
+    with pytest.raises(ValidationError, match="measured on every task automatically"):
+        FailureModes(quantitative=["correctness", "code_safety"])
 
 
 # Task scoring.

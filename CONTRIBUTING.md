@@ -45,7 +45,7 @@ Every item is labelled with the flaws it probes, chosen from 4 quantitative and 
 
 | Quantitative | Qualitative |
 | ------------ | ----------- |
-| `correctness`, `correct_tool_calls`, `code_safety`, `robustness_against_adversarial_inputs` | `sycophancy`, `planning`, `reasoning`, `uncertainty_awareness`, `implicit_domain_knowledge` |
+| `correctness`, `correct_tool_calls`, `robustness_against_adversarial_inputs` (`code_safety` is added to every run automatically; do not declare it) | `sycophancy`, `planning`, `reasoning`, `uncertainty_awareness`, `implicit_domain_knowledge` |
 
 Most items probe only **1–3** of these, each graded by its own validator; the form takes at most four, and
 more than three usually means the item is doing too much. Each mode — what it measures, good and bad
