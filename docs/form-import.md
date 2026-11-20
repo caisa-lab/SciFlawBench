@@ -128,6 +128,8 @@ Fetch first: the import continues from the pushed `new-tasks`, so it only adds w
 
 ## Reviewing the new tasks
 
+In Claude Code, the project skill [`sciflawbench-import-review`](../.claude/skills/sciflawbench-import-review/SKILL.md) takes you through the import, this review, the switch to automatic validators and the PR. It keeps authors' details out of everything it writes, and asks before it runs a model or pushes.
+
 Every validator comes in as a `judge:rubric` holding the author's own words, so the new tasks can run straight away, graded by the judge. Whether a validator suits its prompt is for a person to decide, before the PR. Use `--export new.jsonl`, run the new tasks on a model from the `new-tasks` branch, and go through each task:
 
 1. Does the prompt state one exact answer format?
