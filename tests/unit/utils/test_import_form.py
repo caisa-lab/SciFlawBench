@@ -13,6 +13,7 @@ from core.tasks import TaskDef
 from utils.build_task import FAILURE_MODES, REPO_ROOT, read_tasks
 from utils.import_form import (
     ASSETS_DIR,
+    FILE_LINE,
     FILES_COLUMN,
     MAX_TASK_BYTES,
     PERSONAL_COLUMNS,
@@ -25,7 +26,9 @@ from utils.import_form import (
     drive_fetch,
     failure_mode_name,
     fetch_files,
+    file_warnings,
     import_rows,
+    imported_from,
     local_source,
     main,
     name_parts,
@@ -38,8 +41,10 @@ from utils.import_form import (
     rejected_ids,
     required_columns,
     row_to_task,
+    safe_file_name,
     staged_problems,
     ticked_modes,
+    with_file_paths,
 )
 
 SCRIPT = REPO_ROOT / "utils" / "form_script.gs"
@@ -354,38 +359,56 @@ def test_clean_file_name_cuts_after_the_last_separator(name, expected):
     ("name", "message"),
     [
         ("data.csv", "cannot be cleaned"),
-        ("my data - Jane Roe.csv", "file name"),
-        ("../../data - Jane Roe.csv", "file name"),
-        ("sub/data - Jane Roe.csv", "file name"),
-        (".hidden - Jane Roe.csv", "file name"),
-        ("data - Jean - Luc.csv", "file name"),
+        # part of an account name such as "Jean - Luc" may be left in the name
+        ("data - Jean - Luc.csv", "holds ' - '"),
+        ("my - data - Jane Roe.csv", "holds ' - '"),
     ],
 )
 def test_fetch_files_reports_names_it_cannot_use(name, message):
-    files, _, problems = fetch_files(_row_with_file(), _fetch_as((name, b"x")))
+    files, _, problems, _ = fetch_files(_row_with_file(), _fetch_as((name, b"x")))
 
     assert files == {}
     assert message in problems[0]
 
 
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("temps data.csv", "temps_data.csv"),
+        ("Données (v2).CSV", "Donnees_v2.csv"),
+        ("../../data.csv", "data.csv"),
+        ("sub/data.csv", "sub_data.csv"),
+        (".hidden.csv", "hidden.csv"),
+        ("Λ.csv", "file.csv"),
+        ("notes", "notes"),
+    ],
+)
+def test_safe_file_name_keeps_a_plain_name_inside_the_folder(name, expected):
+    assert safe_file_name(name) == expected
+
+
 def test_fetch_files_cleans_every_name_and_finds_the_uploaders():
-    fetch = _fetch_as(("data - Jane R.csv", b"a"), ("script - Jane R.py", b"b"))
+    fetch = _fetch_as(("data - Jane R.csv", b"a"), ("temps data (v2) - Jane R.py", b"b"), ("Λ - Jane R.txt", b"c"))
 
-    files, uploaders, problems = fetch_files(_row_with_file(), fetch)
+    files, uploaders, problems, uploaded = fetch_files(_row_with_file(), fetch)
 
-    assert files == {"data.csv": b"a", "script.py": b"b"}
-    assert uploaders == ["Jane R", "Jane R"]
+    assert files == {"data.csv": b"a", "temps_data_v2.py": b"b", "file3.txt": b"c"}
+    assert uploaded == {"data.csv": "data.csv", "temps_data_v2.py": "temps data (v2).py", "file3.txt": "Λ.txt"}
+    assert uploaders == ["Jane R", "Jane R", "Jane R"]
     assert problems == []
 
 
-def test_a_file_uploaded_twice_is_reported():
-    _, _, problems = fetch_files(_row_with_file(), _fetch_as(("a - J R.csv", b"1"), ("a - K L.csv", b"2")))
+def test_names_that_clash_once_cleaned_are_numbered():
+    fetch = _fetch_as(("a - J R.csv", b"1"), ("a - K L.csv", b"2"), ("a b - J R.csv", b"3"), ("a_b - J R.csv", b"4"))
 
-    assert "uploaded twice" in problems[0]
+    files, _, problems, _ = fetch_files(_row_with_file(), fetch)
+
+    assert files == {"a.csv": b"1", "a-2.csv": b"2", "a_b.csv": b"3", "a_b-2.csv": b"4"}
+    assert problems == []
 
 
 def test_files_over_the_limit_are_reported():
-    _, _, problems = fetch_files(_row_with_file(), _fetch_as(("a - J R.csv", b"x" * (MAX_TASK_BYTES + 1))))
+    _, _, problems, _ = fetch_files(_row_with_file(), _fetch_as(("a - J R.csv", b"x" * (MAX_TASK_BYTES + 1))))
 
     assert "over the limit" in problems[0]
 
@@ -398,29 +421,31 @@ def _unreadable(row):
     ("fetch", "message"), [(_unreadable, "could not be read"), (_fetch_as(), "none could be found")]
 )
 def test_files_that_cannot_be_read_stop_the_task(fetch, message):
-    _, _, problems = fetch_files(_row_with_file(), fetch)
+    _, _, problems, _ = fetch_files(_row_with_file(), fetch)
 
     assert message in problems[0]
 
 
 def test_nothing_is_fetched_without_uploads():
-    assert fetch_files(_row(), _unreadable) == ({}, [], [])
+    assert fetch_files(_row(), _unreadable) == ({}, [], [], {})
 
 
 # The rules for files.
 
 
-def test_files_named_in_the_prompt_pass():
-    assert check_files("See data/tasks/assets/{TASK_ID}/data.csv.", {"data.csv": b"a,b"}) == []
+@pytest.mark.parametrize(
+    "prompt",
+    ["See data/tasks/assets/{TASK_ID}/data.csv.", "Give the mean of data.csv.", "Give the mean of the attached file."],
+)
+def test_a_prompt_need_not_give_the_path(prompt):
+    assert check_files(prompt, {"data.csv": b"a,b"}) == []
 
 
 @pytest.mark.parametrize(
     ("prompt", "files", "message"),
     [
-        ("Give the mean of data.csv.", {"data.csv": b"a"}, "does not refer"),
         ("See data/tasks/assets/{TASK_ID}/data.csv", {}, "no file was uploaded"),
-        ("See data/tasks/assets/{TASK_ID}/data.csv", {"data.csv": b"a", "other.csv": b"b"}, "other.csv"),
-        ("See data/tasks/assets/{TASK_ID}/mydata.csv", {"data.csv": b"a"}, "does not mention"),
+        ("See data/tasks/assets/{TASK_ID}/mydata.csv", {"data.csv": b"a"}, "mydata.csv"),
         ("See data/tasks/assets/{TASK_ID}/a.pdf", {"a.pdf": b"%PDF"}, "file types"),
         ("See data/tasks/assets/{TASK_ID}/a.png", {"a.png": b"x"}, "file types"),
         ("See data/tasks/assets/{TASK_ID}/a.csv", {"a.csv": b"\xff\xfe"}, "UTF-8"),
@@ -429,6 +454,47 @@ def test_files_named_in_the_prompt_pass():
 )
 def test_check_files_reports_each_problem(prompt, files, message):
     assert any(message in problem for problem in check_files(prompt, files))
+
+
+# The path line added to the prompt.
+
+
+def test_a_line_gives_the_path_of_a_file_the_prompt_gives_none_for():
+    prompt = with_file_paths("Give the mean of the attached temps data.csv.", ["temps_data.csv"])
+
+    assert prompt == (
+        "Give the mean of the attached temps data.csv.\n\nThe file is at data/tasks/assets/{TASK_ID}/temps_data.csv."
+    )
+    assert FILE_LINE == "The {files} at {paths}."
+
+
+def test_the_line_lists_several_files_and_skips_those_with_a_path():
+    prompt = "Compare data/tasks/assets/{TASK_ID}/a.csv with b.csv and c.json."
+
+    assert with_file_paths(prompt, ["a.csv", "b.csv", "c.json"]).endswith(
+        "\n\nThe files are at data/tasks/assets/{TASK_ID}/b.csv and data/tasks/assets/{TASK_ID}/c.json."
+    )
+    assert with_file_paths(prompt, ["a.csv"]) == prompt
+    assert with_file_paths("What is 1 + 1?", []) == "What is 1 + 1?"
+
+
+def test_file_warnings_name_the_changes_a_reviewer_should_read():
+    warnings = file_warnings("Give the mean of temps data.csv.", {"temps_data.csv": "temps data.csv", "x.csv": "x.csv"})
+
+    assert "temps_data.csv: renamed" in warnings[0]
+    assert "x.csv: the prompt does not name this file" in warnings[1]
+    assert "temps_data.csv, x.csv was added at the end of the prompt" in warnings[2]
+    assert file_warnings("See data/tasks/assets/{TASK_ID}/data.csv.", {"data.csv": "data.csv"}) == []
+
+
+def test_imported_from_accepts_the_prompt_with_or_without_the_line():
+    plain, _ = row_to_task(_row())
+    with_line, _ = row_to_task(_row_with_file(**{"Task Description": "Give the mean of data.csv."}), ["data.csv"])
+
+    assert imported_from(plain, "What is 1 + 1?")
+    assert imported_from(with_line, "Give the mean of data.csv.")
+    assert not imported_from(with_line, "Give the median of data.csv.")
+    assert not imported_from({**with_line, "task": with_line["task"] + " Hurry."}, "Give the mean of data.csv.")
 
 
 # Personal details.
@@ -529,6 +595,28 @@ def test_files_land_under_their_cleaned_names(repo):
     assert sorted(committed) == sorted([TASK_FILE, f"{ASSETS_DIR}/SFB-0052/data.csv"])
 
 
+def test_a_file_under_any_name_gets_a_safe_name_and_its_path_in_the_prompt(repo):
+    row = _row_with_file(**{"Task Description": "Give the mean of the attached temps data.csv."})
+    fetch = _fetch_as(("temps data - jane roe.csv", b"t\n1\n2\n"))
+
+    imported, reports, warnings = import_rows([row], fetch, repo)
+
+    assert (imported, reports) == (["SFB-0052"], {})
+    assert (repo / ASSETS_DIR / "SFB-0052" / "temps_data.csv").read_bytes() == b"t\n1\n2\n"
+    task = read_tasks(repo / TASK_FILE)[-1]
+    assert task["task"].endswith("\n\nThe file is at data/tasks/assets/{TASK_ID}/temps_data.csv.")
+    assert task["prompt_md5"] == hash_prompt(task["task"])
+    TaskDef.model_validate(task)
+    assert any("renamed" in note for note in warnings["SFB-0052"])
+    assert any("was added at the end of the prompt" in note for note in warnings["SFB-0052"])
+
+    head = _git(repo, "rev-parse", "HEAD")
+    assert import_rows([row], fetch, repo) == ([], {}, {})
+    edited = {**row, "Task Description": "Give the median of the attached temps data.csv."}
+    assert "different prompt" in import_rows([edited], fetch, repo)[1]["SFB-0052"][0]
+    assert _git(repo, "rev-parse", "HEAD") == head
+
+
 def test_no_personal_detail_reaches_the_commit(repo):
     import_rows([_row_with_file()], _fetch, repo)
 
@@ -611,7 +699,7 @@ def test_a_personal_detail_inside_a_file_stops_it(repo):
 
     _, reports, _ = import_rows([_row_with_file()], fetch, repo)
 
-    assert "appears in data.csv" in reports["SFB-0052"][0]
+    assert "appears in file 1" in reports["SFB-0052"][0]
     assert not (repo / ASSETS_DIR / "SFB-0052").exists()
 
 
@@ -621,6 +709,19 @@ def test_a_personal_detail_in_a_file_name_stops_it(repo):
     _, reports, _ = import_rows([row], _fetch_as(("jane.roe@example.org - J R.csv", b"1")), repo)
 
     assert any("personal detail" in problem or "file name" in problem for problem in reports["SFB-0052"])
+
+
+@pytest.mark.parametrize(
+    "upload", ["jane roe readings - J R.csv", "Jane (Roe) data - J R.csv", "jane-roe - J R.csv", "Jane_Roe - J R.csv"]
+)
+def test_a_personal_detail_only_in_the_uploaded_name_stops_it(repo, upload):
+    row = _row_with_file(**{"Task Description": "Give the mean of the attached file."})
+
+    _, reports, _ = import_rows([row], _fetch_as((upload, b"1,2\n")), repo)
+
+    assert "personal detail of a contributor appears in file 1" in reports["SFB-0052"][0]
+    assert "jane" not in json.dumps(reports).casefold()
+    assert not (repo / ASSETS_DIR / "SFB-0052").exists()
 
 
 def test_the_account_name_is_searched_for_even_when_it_differs_from_the_typed_name(repo):
@@ -895,7 +996,7 @@ def test_the_local_source_refuses_links_in_the_files_folder(tmp_path):
     os.symlink("/etc/hosts", folder / "SFB-0052" / "hosts - jane roe.csv")
 
     rows, fetch = local_source(tmp_path / "sheet.csv", folder)
-    _, _, problems = fetch_files(rows[0], fetch)
+    _, _, problems, _ = fetch_files(rows[0], fetch)
 
     assert "could not be read" in problems[0]
 

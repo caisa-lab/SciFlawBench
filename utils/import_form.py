@@ -50,7 +50,10 @@ URL = re.compile(r"https?://\S+")
 # Only text, so the leak check can read everything that gets committed. PDFs and the like hide details in metadata.
 TEXT_SUFFIXES = {".csv", ".dat", ".json", ".md", ".py", ".txt"}
 MAX_TASK_BYTES = 20 * 1024 * 1024
-SAFE_FILE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+UNSAFE_CHARACTERS = re.compile(r"[^A-Za-z0-9._-]+")
+# The line added to a prompt for the files it gives no path for. Changing its wording makes every task imported with it
+# a conflict on the next run, since the run compares the prompt on the branch with the one on the form.
+FILE_LINE = "The {files} at {paths}."
 DRIVE_FILE_ID = re.compile(r"[?&]id=([\w-]+)")
 ORCID = re.compile(r"\d{4}-\d{4}-\d{4}-\d{3}[\dXx]")
 NO_ANSWER = {"-", "n/a", "na", "nil", "no", "none"}
@@ -215,15 +218,17 @@ def parse_sources(answer: str) -> tuple[list[dict], list[str]]:
     return sources, problems
 
 
-def row_to_task(row: dict[str, str]) -> tuple[dict, list[str]]:
+def row_to_task(row: dict[str, str], files=()) -> tuple[dict, list[str]]:
     """
     Build the task line of one submission. The personal columns are never read here.
 
     Each ticked failure mode gets a `judge:rubric` validator holding the author's description of it from the
     Validation answer. A reviewer may swap one for an automatic validator, such as a numeric match, before the PR.
+    The prompt gets a closing line with the path of each file it gives no path for (see `with_file_paths`).
 
     Args:
         row (dict[str, str]): the submission
+        files (Iterable[str]): the cleaned names of its files
 
     Returns (tuple[dict, list[str]]): the task, and the problems found in its answers
     """
@@ -245,7 +250,7 @@ def row_to_task(row: dict[str, str]) -> tuple[dict, list[str]]:
         if mode in descriptions
     ]
     task = build_task(
-        _box(row, "Task Description"),
+        with_file_paths(_box(row, "Task Description"), files),
         AGENT_ID,
         [mode for mode in modes if mode in QUANTITATIVE_FAILURE_MODES],
         [mode for mode in modes if mode not in QUANTITATIVE_FAILURE_MODES],
@@ -271,56 +276,123 @@ def clean_file_name(name: str) -> tuple[str, str]:
     return (kept + suffix, uploader) if separator else (name, "")
 
 
-def fetch_files(row: dict[str, str], fetch) -> tuple[dict[str, bytes], list[str], list[str]]:
+def safe_file_name(name: str, default: str = "file") -> str:
     """
-    Get a submission's files and clean their names. A file that can't be read stops the task.
+    A file name of letters, digits, '.', '_' and '-' only: accents are dropped, any other run of characters becomes
+    `_`, and the name can't start with '.', '_' or '-', so it stays a plain file inside the task's folder.
+
+    Args:
+        name (str): the name as uploaded, without the account name
+        default (str): the name to use when nothing usable is left of it, before the extension
+
+    Returns (str): the safe name, such as `temps_data.csv` for `temps data.csv`
+    """
+    stem, suffix = os.path.splitext(name)
+    plain = unicodedata.normalize("NFKD", stem).encode("ascii", "ignore").decode("ascii")
+    stem = UNSAFE_CHARACTERS.sub("_", plain).strip("._-") or default
+    return stem + UNSAFE_CHARACTERS.sub("_", suffix).lower()
+
+
+def fetch_files(row: dict[str, str], fetch) -> tuple[dict[str, bytes], list[str], list[str], dict[str, str]]:
+    """
+    Get a submission's files and clean their names, so authors can upload files under any name. A file that can't be
+    read stops the task, and so does a name still holding ' - ' once the account name is cut off, since part of an
+    account name such as `Jean - Luc` may be left in it. Names that clash once cleaned are numbered: `data-2.csv`.
 
     Args:
         row (dict[str, str]): the submission
         fetch (Callable[[dict[str, str]], list[tuple[str, bytes]]]): gives the name and contents of a row's files
 
-    Returns (tuple[dict[str, bytes], list[str], list[str]]): cleaned name to contents, the uploader names, the problems
+    Returns (tuple[dict[str, bytes], list[str], list[str], dict[str, str]]): cleaned name to contents, the uploader
+        names, the problems, and cleaned name to the name as uploaded
     """
     if not _box(row, FILES_COLUMN):
-        return {}, [], []
+        return {}, [], [], {}
     try:
         uploads = fetch(row)
     except Exception as error:
-        return {}, [], [f"its files could not be read ({type(error).__name__})"]
+        return {}, [], [f"its files could not be read ({type(error).__name__})"], {}
     if not uploads:
-        return {}, [], ["the form lists files for it, but none could be found"]
+        return {}, [], ["the form lists files for it, but none could be found"], {}
 
-    files, uploaders, problems = {}, [], []
+    files, uploaders, problems, uploaded = {}, [], [], {}
     for index, (name, content) in enumerate(uploads, start=1):
-        cleaned, uploader = clean_file_name(name)
+        kept, uploader = clean_file_name(name)
         if not uploader:
             problems.append(f"file {index}: its name does not end in ' - <account name>', so it cannot be cleaned")
-        elif not SAFE_FILE_NAME.fullmatch(cleaned):
-            problems.append(f"file {index}: use only letters, digits, '.', '_' and '-' in the file name")
-        elif cleaned in files:
-            problems.append(f"file {index}: {cleaned} was uploaded twice")
+        elif " - " in kept:
+            problems.append(f"file {index}: its name holds ' - ', so part of the account name may be left in it")
         else:
-            files[cleaned] = content
+            cleaned = safe_file_name(kept, default=f"file{index}")
+            stem, suffix = os.path.splitext(cleaned)
+            number = 2
+            while cleaned in files:
+                cleaned, number = f"{stem}-{number}{suffix}", number + 1
+            files[cleaned], uploaded[cleaned] = content, kept
         if uploader:
             uploaders.append(uploader)
     if sum(len(content) for content in files.values()) > MAX_TASK_BYTES:
         problems.append(f"its files are over the limit of {MAX_TASK_BYTES // (1024 * 1024)} MB per task")
-    return files, uploaders, problems
+    return files, uploaders, problems, uploaded
+
+
+def _paths_named(prompt: str) -> list[str]:
+    """The file names the prompt gives a `data/tasks/assets/{TASK_ID}/<name>` path for, in order."""
+    found = re.findall(rf"{re.escape(TASK_ID_PLACEHOLDER)}/([\w.-]+)", prompt)
+    return list(dict.fromkeys(name.rstrip(".") for name in found))
+
+
+def with_file_paths(prompt: str, files) -> str:
+    """
+    The prompt with a closing line giving the path of each file it gives no path for, such as
+    `The file is at data/tasks/assets/{TASK_ID}/temps_data.csv.`, so the agent can read it. The author's own words
+    are left as they are.
+
+    Args:
+        prompt (str): the prompt as written on the form
+        files (Iterable[str]): the cleaned names of the task's files
+
+    Returns (str): the prompt, unchanged when it gives every path already
+    """
+    prompt = prompt.strip()
+    given = set(_paths_named(prompt))
+    paths = [f"{ASSETS_DIR}/{TASK_ID_PLACEHOLDER}/{name}" for name in files if name not in given]
+    if not paths:
+        return prompt
+    listed = paths[0] if len(paths) == 1 else f"{', '.join(paths[:-1])} and {paths[-1]}"
+    return f"{prompt}\n\n" + FILE_LINE.format(files="file is" if len(paths) == 1 else "files are", paths=listed)
+
+
+def imported_from(task: dict, prompt: str) -> bool:
+    """
+    Whether `task` was imported from `prompt`: the task holds the prompt unchanged, or with the line the import adds
+    for its files' paths. The line is rebuilt from the paths it names, so no file is fetched again.
+
+    Args:
+        task (dict): a task already in the task file
+        prompt (str): the prompt now on the form
+
+    Returns (bool): whether the prompt is the one imported
+    """
+    prompt = prompt.strip()
+    if task.get("prompt_md5") == hash_prompt(prompt):
+        return True
+    stored = str(task.get("task") or "")
+    added = stored[len(prompt) :] if stored.startswith(prompt) else ""
+    return bool(added) and stored == with_file_paths(prompt, _paths_named(added))
 
 
 def check_files(prompt: str, files: dict[str, bytes]) -> list[str]:
     """
-    Find the problems in a submission's cleaned files.
+    Find the problems in a submission's cleaned files. A prompt need not give their paths, since the import adds them.
 
     Args:
-        prompt (str): the task's prompt
+        prompt (str): the prompt as written on the form
         files (dict[str, bytes]): cleaned name to contents
 
     Returns (list[str]): the problems found
     """
     problems = []
-    if files and TASK_ID_PLACEHOLDER not in prompt:
-        problems.append(f"files were uploaded, but the prompt does not refer to {ASSETS_DIR}/{TASK_ID_PLACEHOLDER}/")
     if TASK_ID_PLACEHOLDER in prompt and not files:
         problems.append(f"the prompt refers to {ASSETS_DIR}/{TASK_ID_PLACEHOLDER}/, but no file was uploaded")
     for name, content in files.items():
@@ -331,12 +403,36 @@ def check_files(prompt: str, files: dict[str, bytes]) -> list[str]:
                 content.decode("utf-8")
             except UnicodeDecodeError:
                 problems.append(f"{name}: not a UTF-8 text file")
-        if not re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-])", prompt):
-            problems.append(f"{name}: the prompt does not mention this file")
-    named = {match.rstrip(".") for match in re.findall(rf"{re.escape(TASK_ID_PLACEHOLDER)}/([\w.-]+)", prompt)}
-    for name in sorted(named - set(files)):
+    for name in sorted(set(_paths_named(prompt)) - set(files)):
         problems.append(f"the prompt mentions {name}, but no such file was uploaded")
     return problems
+
+
+def _mentions(prompt: str, name: str) -> bool:
+    return bool(re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-])", prompt, re.IGNORECASE))
+
+
+def file_warnings(prompt: str, uploaded: dict[str, str]) -> list[str]:
+    """
+    What a reviewer should read about a submission's files: names the import changed, files the prompt doesn't
+    name, and the line it added to the prompt.
+
+    Args:
+        prompt (str): the prompt as written on the form
+        uploaded (dict[str, str]): cleaned name to the name as uploaded
+
+    Returns (list[str]): the warnings
+    """
+    warnings = []
+    for name, original in uploaded.items():
+        if name != original:
+            warnings.append(f"{name}: renamed from its uploaded name to fit the file-name rules")
+        if not (_mentions(prompt, name) or _mentions(prompt, original)):
+            warnings.append(f"{name}: the prompt does not name this file; check that the agent knows what it is for")
+    added = [name for name in uploaded if name not in _paths_named(prompt)]
+    if added:
+        warnings.append(f"a line giving the path of {', '.join(added)} was added at the end of the prompt")
+    return warnings
 
 
 def personal_terms(row: dict[str, str], uploaders: list[str]) -> list[str]:
@@ -372,6 +468,11 @@ def _normalize(text: str) -> str:
     decomposed = unicodedata.normalize("NFKD", text)
     without_accents = "".join(char for char in decomposed if not unicodedata.combining(char))
     return " ".join(without_accents.split()).casefold()
+
+
+def _spaced(name: str) -> str:
+    """A file name with each run of characters other than letters and digits as one space: `Jane_Roe` -> `Jane Roe`."""
+    return " ".join(re.split(r"[\W_]+", name))
 
 
 def contains_personal_detail(text: str, terms: list[str]) -> bool:
@@ -495,14 +596,18 @@ def import_submission(
     if assets.exists():
         return [f"{ASSETS_DIR}/{task_id} already exists"], []
 
-    task, problems = row_to_task(row)
-    files, uploaders, file_problems = fetch_files(row, fetch)
-    problems += file_problems + check_files(task["task"], files)
+    files, uploaders, file_problems, uploaded = fetch_files(row, fetch)
+    task, problems = row_to_task(row, files)
+    problems += file_problems + check_files(_box(row, "Task Description"), files)
 
     terms = [*terms, *personal_terms(row, uploaders)]
     parts = [*parts, *name_parts(row, uploaders)]
     texts = {"the task line": json.dumps(task, ensure_ascii=False)}
-    texts |= {name: f"{name}\n{content.decode('utf-8', errors='replace')}" for name, content in files.items()}
+    for number, (name, content) in enumerate(files.items(), start=1):
+        # by number, so a report never quotes a name, and with the name as uploaded and spelled out: cleaning turns
+        # "Jane (Roe).csv" into "Jane_Roe.csv", which the scan would not match
+        names = [uploaded[name], name, _spaced(uploaded[name]), _spaced(name)]
+        texts[f"file {number}"] = "\n".join([*names, content.decode("utf-8", errors="replace")])
     warnings = []
     for where, text in texts.items():
         if contains_personal_detail(text, terms):
@@ -516,6 +621,8 @@ def import_submission(
     # check_task wants the folder of a prompt with {TASK_ID} to exist
     assets.mkdir(parents=True)
     problems += check_task(task) + _loader_problems(task)
+    if not problems:
+        warnings += file_warnings(_box(row, "Task Description"), uploaded)
     if problems or dry_run or not files:
         shutil.rmtree(assets)
     if problems or dry_run:
@@ -568,7 +675,7 @@ def import_rows(
         if not task_id:
             reports[f"sheet row {number}"] = ["it has no task id, so the Apps Script did not run on it"]
         elif task_id in known:
-            if known[task_id].get("prompt_md5") != hash_prompt(_box(row, "Task Description")):
+            if not imported_from(known[task_id], _box(row, "Task Description")):
                 reports[task_id] = ["it is already imported with a different prompt; the task was not changed"]
         elif task_id not in rejected:
             problems, notes = import_submission(row, fetch, repo, terms, parts, dry_run=dry_run)
