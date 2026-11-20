@@ -4,7 +4,7 @@ import ipaddress
 import re
 import socket
 from collections.abc import Sequence
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
 import requests
 from markdownify import markdownify
@@ -13,6 +13,8 @@ from smolagents import VisitWebpageTool
 MAX_REDIRECTS = 5
 TIMEOUT_S = 20
 MAX_PAGE_BYTES = 10 * 1024 * 1024  # read at most this much of a page, so a huge response can't fill the memory
+# URLs refused by default: the benchmark's public repository, its pages and copies hold the tasks and their answers.
+BLOCKED_URLS = ("sciflawbench",)
 
 
 class BlockedURLError(ValueError):
@@ -33,11 +35,22 @@ class PublicVisitWebpageTool(VisitWebpageTool):
     Not covered: a host whose DNS answer changes between the check and the request (DNS rebinding), and internal
     services on public addresses (for example a university network reached over a VPN), unless their networks are
     listed in `blocked_networks`.
+
+    A URL containing one of `blocked_urls` (case-insensitive, also after decoding %-escapes) is refused before any
+    request, and so is a redirect to one. By default that is any URL with "sciflawbench" in it, as for the Tavily
+    search: the benchmark's public repository holds the tasks and their answers. The refusal does not say why, so the
+    agent is not told that it is being benchmarked.
     """
 
-    def __init__(self, max_output_length: int = 40000, blocked_networks: Sequence[str] = ()):
+    def __init__(
+        self,
+        max_output_length: int = 40000,
+        blocked_networks: Sequence[str] = (),
+        blocked_urls: Sequence[str] = BLOCKED_URLS,
+    ):
         super().__init__(max_output_length=max_output_length)
         self.blocked_networks = [ipaddress.ip_network(network, strict=False) for network in blocked_networks]
+        self.blocked_urls = [pattern.lower() for pattern in blocked_urls if pattern]
 
     def forward(self, url: str) -> str:
         try:
@@ -82,6 +95,8 @@ class PublicVisitWebpageTool(VisitWebpageTool):
             return bytes(data).decode("utf-8", errors="replace"), cut
 
     def _check(self, url: str) -> None:
+        if any(pattern in unquote(url).lower() for pattern in self.blocked_urls):
+            raise BlockedURLError(f"{url!r} is not available")
         parts = urlsplit(url)
         if parts.scheme not in ("http", "https"):
             raise BlockedURLError(f"only http and https URLs can be visited, not {url!r}")
