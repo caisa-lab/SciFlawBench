@@ -34,7 +34,7 @@ The importer reads the questions by their titles, ignoring case and spacing, so 
 | `Failure Modes` | checkboxes, one per failure mode, written with spaces, such as `correct tool calls` | The task's failure modes, quantitative first |
 | `Validation` | paragraph | One `judge:rubric` validator per failure mode: a `# MODE` line, and the description below it as the rubric |
 | `Sources` | paragraph | The sources: each `* ` line starts one, its first link is the URL, and the rest of the line and the `- ` lines below it are the note |
-| `Data (Optional)` | file upload | The task's files, in `data/tasks/assets/<id>/`, and the `read_file` tool |
+| `Data (Optional)` | file upload | The task's files, in `data/tasks/assets/<id>/` under safe names, and the `read_file` tool; a prompt that gives no path for a file gets a closing line with it (see [File names](#file-names)) |
 
 To rename a question, change the form and `PERSONAL_COLUMNS` or `TASK_COLUMNS` in `import_form.py` together, and for a question about the author, `AUTHOR_COLUMNS` in `form_script.gs` too.
 
@@ -102,13 +102,21 @@ A submission is reported and not written when:
 | Failure modes and validation | Not 1 to 4 failure modes are ticked; a ticked mode has no `# MODE` section, or a section names a mode that isn't ticked or isn't a failure mode; a mode is described twice or has no description; or text comes before the first `# MODE` line |
 | Sources | No source is given, a source has no `http://` or `https://` link, or text comes before the first source |
 | The task | [`check_task`](../utils/build_task.py) or the harness's `TaskDef` loader refuses it, or its prompt is already in the task file |
-| Files | The type isn't `.csv`, `.dat`, `.json`, `.md`, `.py` or `.txt`; a file isn't UTF-8 text or can't be read; the name isn't in the prompt, or could leave the task's folder; the prompt names a file nobody uploaded; or the files come to over 20 MB |
-| Personal details | The name, email, ORCID or OpenReview handle of **anyone in the sheet**, or the uploader's Google account name, appears in the task line, a file name or a file's contents. Case, accents and spacing are ignored |
+| Files | The type isn't `.csv`, `.dat`, `.json`, `.md`, `.py` or `.txt`; a file isn't UTF-8 text or can't be read; a name still holds ` - ` once the account name is cut off; the prompt gives a path to a file nobody uploaded, or to the task's folder when nothing was uploaded; or the files come to over 20 MB |
+| Personal details | The name, email, ORCID or OpenReview handle of **anyone in the sheet**, or the uploader's Google account name, appears in the task line, a file's name (as uploaded or cleaned) or a file's contents. Case, accents and spacing are ignored |
 | What is staged | Just before committing, the staged changes are scanned for the same details, and for symbolic links, hidden files and anything outside `data/tasks/` |
 
 A single word of a person's name, such as a surname on its own, doesn't stop a task, because it may be chance: the importer warns you to read that task. Reports never quote the detail they found. Commits use a fixed `SciFlawBench import` identity, so no author or maintainer details reach the git history.
 
-**File names.** Google renames uploads to `data - Name Surname.csv`, using the name on the uploader's Google account, which can differ from the name typed in the form. The importer keeps what comes before the last ` - `, so that file becomes `data.csv` in `data/tasks/assets/<id>/`, and searches for the cut name along with the typed details.
+### File names
+
+Authors can upload files under any name and needn't give a path; the importer does both:
+
+- **The account name is cut off.** Google renames uploads to `data - Name Surname.csv`, using the name on the uploader's Google account, which can differ from the name typed in the form. The importer keeps what comes before the last ` - `, and searches for the cut name along with the typed details. A name that still holds ` - ` is refused, since part of an account name such as `Jean - Luc` may be left in it.
+- **The name is made safe.** Accents are dropped and any character other than a letter, digit, `.`, `_` or `-` becomes `_`, so `temps data (v2).csv` becomes `temps_data_v2.csv` in `data/tasks/assets/<id>/`. Names that clash are numbered (`data-2.csv`). The name as uploaded is scanned for personal details too, as is each name with its punctuation read as spaces, so `Jane (Roe).csv` can't hide a name as `Jane_Roe.csv`.
+- **The prompt gets the path.** For each file the prompt gives no `data/tasks/assets/{TASK_ID}/<name>` path for, a closing line is added: `The file is at data/tasks/assets/{TASK_ID}/temps_data.csv.` The author's own words stay as they are. Running the import again accepts a prompt with this line as unchanged, so don't reword the line in `FILE_LINE`: every task imported with the old wording would then be a conflict.
+
+The importer warns you when it renamed a file, added the line, or found a file the prompt doesn't name, so you can read the prompt before the PR.
 
 Uploaded files are never run by the importer, and **a person still has to read them**: the leak check only finds the exact details the author gave, not a nickname or a shortened name.
 
