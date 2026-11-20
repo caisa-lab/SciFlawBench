@@ -248,6 +248,10 @@ A trace value that can't be copied into the run's record, such as a module or an
 
 The kind is decided by the error's type (searching its chain of causes, since smolagents wraps a provider's error in an `AgentGenerationError`), never by its message. Runs recorded before `failure_kind` existed are scored as before: one that raised or was killed has no checks and is left out. The failure-mode taxonomy itself is documented in [`docs/failure-modes.md`](docs/failure-modes.md).
 
+Judge checks (`judge:rubric`) are graded by the run's `judge`, or by a panel of `judges` that decides by majority vote (see [Judge settings](examples/README.md#judge-settings)). Different judges give different scores, so compare only runs graded by the same judge or panel. A panel stores every judge's vote, so [`utils/rescore_votes.py`](utils/rescore_votes.py) can recompute a panel run's scores for one judge alone or with another rule, without new judge calls.
+
+Every run that produced an answer also gets the automatic `code_safety` check (see [`docs/failure-modes.md`](docs/failure-modes.md)). Since that check was added (#78), each run has one more check, so overall, family and per-task scores recorded before it are not comparable with later ones; the scores of the other failure modes are unchanged.
+
 A run in which a tool call raised an error, such as a web search that still failed after all its tries, is scored as usual, since the agent may have recovered. Its record gives the failed calls per tool in `tool_failures` (e.g. `{"web_search": 2}`), and the run is listed under `tool_failures` in `scores.json` and at the end of `run_summary.log`, so it can be re-run if the failure may have changed the answer. A tool that reports a problem in its answer instead of raising is not counted.
 
 ## Reproducibility and Resuming
@@ -271,7 +275,7 @@ logs/<timestamp>/            # the `log_path` itself when `restarting` is set
     └── <task_id>_artifacts/ # spilled tool outputs, one sub-directory per repetition
 ```
 
-The manifest captures the task set (file and content hashes), the local assets it depends on, the agent prompt templates, the model configuration, the tool configuration, the judge configuration (for runs whose tasks are graded by an LLM judge), the budget (repetitions, timeout) and environment provenance (git revision, dependency versions, platform).
+The manifest captures the task set (file and content hashes), the local assets it depends on, the agent prompt templates, the model configuration, the tool configuration, the judge configuration (one judge or a panel, for runs whose tasks are graded by an LLM judge), the budget (repetitions, timeout) and environment provenance (git revision, dependency versions, platform).
 
 ### Resuming an interrupted run
 

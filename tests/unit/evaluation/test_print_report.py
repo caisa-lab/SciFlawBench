@@ -200,8 +200,13 @@ def test_save_markdown_report_uses_the_same_budget(tmp_path):
 
 
 def test_reports_and_the_judge_share_the_judges_budget():
-    assert trace_token_budget(SimpleNamespace(judge=SimpleNamespace(max_trace_tokens=1234))) == 1234
-    assert trace_token_budget(SimpleNamespace(judge=None)) == DEFAULT_MAX_TRACE_TOKENS
+    assert trace_token_budget(SimpleNamespace(judge_panel=[SimpleNamespace(max_trace_tokens=1234)])) == 1234
+    assert trace_token_budget(SimpleNamespace(judge_panel=[])) == DEFAULT_MAX_TRACE_TOKENS
+
+
+def test_a_panel_reads_the_trace_within_its_smallest_budget():
+    panel = [SimpleNamespace(max_trace_tokens=500_000), SimpleNamespace(max_trace_tokens=250_000)]
+    assert trace_token_budget(SimpleNamespace(judge_panel=panel)) == 250_000
 
 
 # --- execution logs ---------------------------------------------------------------------------------
@@ -332,7 +337,8 @@ def test_a_tool_that_raised_is_kept_and_marked_failed():
     assert "❌" in md
 
 
-def test_the_judge_is_given_the_trace_rendered_within_its_budget(monkeypatch):
+def _context_for(monkeypatch, judge_panel):
+    """The verifier context `build_verifier_context` builds for a judge task, and the budget the trace was given."""
     from core import tasks
     from core.events import AgentEvent, EventType
     from core.task_ids import hash_prompt
@@ -351,10 +357,37 @@ def test_the_judge_is_given_the_trace_rendered_within_its_budget(monkeypatch):
         failure_modes={"qualitative": ["reasoning"]},
         validators=[{"name": "judge:rubric", "kwargs": {"rubric": "r"}, "failure_mode": "reasoning"}],
     )
-    run_config = SimpleNamespace(judge=SimpleNamespace(max_trace_tokens=4321, model_id="j"))
     events = [AgentEvent(event_type=EventType.AgentStart, task_id="demo", payload={}, timestamp=0.0)]
+    context = tasks.build_verifier_context(task, "p", "answer", SimpleNamespace(judge_panel=judge_panel), events)
+    return context, seen["max_tokens"]
 
-    context = tasks.build_verifier_context(task, "p", "answer", run_config, events)
+
+def test_the_judge_is_given_the_trace_rendered_within_its_budget(monkeypatch):
+    from evaluation.judge import LiteLLMJudge
+
+    context, budget = _context_for(monkeypatch, [SimpleNamespace(max_trace_tokens=4321, model_id="j")])
 
     assert context.trace == "rendered"
-    assert seen["max_tokens"] == 4321
+    assert budget == 4321
+    assert isinstance(context.judge, LiteLLMJudge)
+
+
+def test_two_or_more_judges_grade_as_a_panel(monkeypatch):
+    from evaluation.judge import JudgePanel
+
+    judges = [
+        SimpleNamespace(max_trace_tokens=500_000, model_id="a"),
+        SimpleNamespace(max_trace_tokens=9, model_id="b"),
+    ]
+    context, budget = _context_for(monkeypatch, judges)
+
+    assert isinstance(context.judge, JudgePanel)
+    assert context.judge.model_id == "majority of a, b"
+    assert budget == 9
+
+
+def test_a_run_without_a_judge_says_so(monkeypatch):
+    context, _ = _context_for(monkeypatch, [])
+
+    assert context.judge is None
+    assert context.judge_error == "the run config has no 'judge' or 'judges' section"

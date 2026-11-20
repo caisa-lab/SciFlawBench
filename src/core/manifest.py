@@ -7,10 +7,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from core.config import RunConfig
+from core.config import JudgeConfig, RunConfig
 from core.task_ids import find_repo_root
 from evaluation.code_safety import rules_fingerprint
-from evaluation.judge import judge_template_sha256
+from evaluation.judge import PANEL_RETRIES, JudgePanel, judge_template_sha256
 
 MANIFEST_FILENAME = "run_manifest.json"
 MANIFEST_SHA_FILENAME = "run_manifest.sha256"
@@ -129,20 +129,33 @@ def assets_fingerprint(task_file: Path) -> tuple[str | None, str | None]:
     return str(assets_dir), hash_directory(assets_dir)
 
 
+def _judge_identity(judge: JudgeConfig) -> dict[str, Any]:
+    """One judge's model, endpoint, extra kwargs and trace budget."""
+    return {
+        "model_id": judge.model_id,
+        "api_base": judge.api_base,
+        "extra_kwargs": judge.extra_kwargs,
+        "max_trace_tokens": judge.max_trace_tokens,
+    }
+
+
 def judge_fingerprint(conf: RunConfig) -> dict[str, Any] | None:
     """
     The judge's identity and prompt template, or `None` when the run has no judge.
 
-    Nothing secret goes in here: the API key, and even the *name* of the environment variable
+    A single judge is recorded as before; a panel records every judge, in order, and how their verdicts are
+    combined. Nothing secret goes in here: the API key, and even the *name* of the environment variable
     that holds it, are left out (matching how the model configuration is recorded).
     """
-    if conf.judge is None:
+    panel = conf.judge_panel
+    if not panel:
         return None
+    if len(panel) == 1:
+        return {**_judge_identity(panel[0]), "prompt_sha256": judge_template_sha256()}
     return {
-        "model_id": conf.judge.model_id,
-        "api_base": conf.judge.api_base,
-        "extra_kwargs": conf.judge.extra_kwargs,
-        "max_trace_tokens": conf.judge.max_trace_tokens,
+        "panel": [_judge_identity(judge) for judge in panel],
+        "aggregation": JudgePanel.aggregation,
+        "retries": PANEL_RETRIES,
         "prompt_sha256": judge_template_sha256(),
     }
 

@@ -1,7 +1,10 @@
 import hashlib
 import json
 import re
+from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from typing import Any
 
 from core.config import JudgeConfig
 
@@ -53,13 +56,22 @@ class JudgeReplyError(ValueError):
     """Raised when a judge reply cannot be read as the required JSON object."""
 
 
+class JudgePanelError(RuntimeError):
+    """Raised when no judge of a panel returned a verdict; `votes` holds what each judge did."""
+
+    def __init__(self, message: str, votes: list[dict[str, Any]]):
+        super().__init__(message)
+        self.votes = votes
+
+
 @dataclass
 class JudgeVerdict:
-    """A parsed judge reply."""
+    """A parsed judge reply, or a panel's combined verdict."""
 
     passed: bool
     justification: str
     raw_reply: str
+    votes: list[dict[str, Any]] | None = None  # a panel's verdict per judge; None for a single judge
 
 
 def judge_template_sha256() -> str:
@@ -209,3 +221,90 @@ class LiteLLMJudge:
             **self.conf.extra_kwargs,
         )
         return response.choices[0].message.content or ""
+
+
+#: How often a panel asks a judge again after its call failed or its reply could not be read.
+PANEL_RETRIES = 1
+#: Characters of a judge's error kept in a panel's votes.
+_MAX_ERROR_CHARS = 300
+
+
+class JudgePanel:
+    """
+    Several judges grading the same trace: the check passes when more of the judges that answered pass it than fail it.
+
+    Every judge gets the same prompt, and the judges are asked in parallel. A judge whose call fails, or whose reply
+    cannot be read, is asked again (`PANEL_RETRIES`); if it still fails it abstains and the others decide. A tie,
+    e.g. 1-1 in a panel of two or after an abstention, fails the check. When no judge answers, `judge` raises
+    `JudgePanelError`, which the `judge:rubric` verifier records as a failed check, as it does when a single judge's
+    call fails. Every judge's verdict and justification are returned in `JudgeVerdict.votes`.
+    """
+
+    aggregation = "majority"
+
+    def __init__(self, judges: Sequence[Any]):
+        if len(judges) < 2:
+            raise ValueError("a judge panel needs at least two judges")
+        self.judges = list(judges)
+
+    @property
+    def model_id(self) -> str:
+        """The panel's judges, in order, as recorded with each check."""
+        return "majority of " + ", ".join(judge.model_id for judge in self.judges)
+
+    def judge(self, rubric: str, trace: str) -> JudgeVerdict:
+        """
+        Grade one trace against one rubric with every judge, and combine the verdicts by majority.
+
+        Args:
+            rubric (str): the question the judges have to answer about the trace
+            trace (str): the rendered trace to grade
+
+        Returns (JudgeVerdict): the majority verdict, a justification listing every judge's verdict, and the votes
+
+        Raises:
+            JudgePanelError: when no judge returned a verdict
+        """
+        with ThreadPoolExecutor(max_workers=len(self.judges)) as pool:
+            ballots = list(pool.map(lambda judge: _ask(judge, rubric, trace), self.judges))
+        votes = [vote for vote, _ in ballots]
+        counted = [vote for vote in votes if vote["passed"] is not None]
+        if not counted:
+            reasons = "; ".join(f"{vote['judge_model']}: {vote['error']}" for vote in votes)
+            raise JudgePanelError(f"no judge of the panel returned a verdict ({reasons})", votes)
+
+        passes = sum(vote["passed"] for vote in counted)
+        fails = len(counted) - passes
+        summary = f"{passes} of {len(counted)} judges passed"
+        if len(counted) < len(votes):
+            summary += f" ({len(votes) - len(counted)} gave no verdict)"
+        if passes == fails:
+            summary += "; a tie fails the check"
+        lines = [summary + "."]
+        for vote in votes:
+            if vote["passed"] is None:
+                lines.append(f"- {vote['judge_model']}: no verdict ({vote['error']})")
+            else:
+                lines.append(
+                    f"- {vote['judge_model']}: {'passed' if vote['passed'] else 'failed'}: {vote['justification']}"
+                )
+        return JudgeVerdict(
+            passed=passes > fails,
+            justification="\n".join(lines),
+            raw_reply=json.dumps([raw for _, raw in ballots], ensure_ascii=False),
+            votes=votes,
+        )
+
+
+def _ask(judge: Any, rubric: str, trace: str) -> tuple[dict[str, Any], str | None]:
+    """One panel judge's vote (and its raw reply), asked again `PANEL_RETRIES` times if it fails."""
+    error = ""
+    for _ in range(1 + PANEL_RETRIES):
+        try:
+            verdict = judge.judge(rubric, trace)
+        except Exception as exc:  # one judge failing must not cost the others their votes
+            error = f"{type(exc).__name__}: {exc}"[:_MAX_ERROR_CHARS]
+            continue
+        vote = {"judge_model": judge.model_id, "passed": verdict.passed, "justification": verdict.justification}
+        return vote, verdict.raw_reply
+    return {"judge_model": judge.model_id, "passed": None, "error": error}, None

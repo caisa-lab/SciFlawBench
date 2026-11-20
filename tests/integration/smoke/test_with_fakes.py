@@ -189,6 +189,67 @@ def test_run_task_records_the_judge_score_and_justification(tmp_path, monkeypatc
     assert "Task Report" in seen["trace"]
 
 
+def test_run_task_records_a_panel_majority_and_every_vote(tmp_path, monkeypatch):
+    """With `judges`, every judge grades the trace; the majority decides and each vote lands in the metadata."""
+    setup_basics(tmp_path, monkeypatch)
+    monkeypatch.setenv("JUDGE_KEY", "judge-secret")
+    monkeypatch.setenv("ENABLE_TEST_FAKES", "1")
+
+    from evaluation.judge import JudgeVerdict, LiteLLMJudge
+
+    def fake_judge(self, rubric, trace):
+        passed = self.model_id != "judge-c"  # judge-c disagrees with the other two
+        return JudgeVerdict(passed=passed, justification=f"{self.model_id} read the trace", raw_reply="{}")
+
+    monkeypatch.setattr(LiteLLMJudge, "judge", fake_judge)
+
+    task_file = tmp_path / "tasks.jsonl"
+    task_file.write_text(
+        '{"task_id": 1, "task": "say hi", "agent_id": "fake_agent",'
+        ' "failure_modes": {"quantitative": ["correctness"]}}\n'
+    )
+    conf = RunConfig(
+        model=ModelConfig(
+            provider="fake_model",
+            model_id="fake",
+            api_key_env="FAKE_KEY",
+            extra_kwargs={"responses": ["final_answer('done')"]},
+        ),
+        judges=[JudgeConfig(model_id=f"judge-{name}", api_key_env="JUDGE_KEY") for name in "abc"],
+        task_file=task_file,
+        log_path=tmp_path / "logs",
+        repetitions_per_task=1,
+    )
+
+    import tests.fakes.presets  # noqa: F401
+    import tests.fakes.tools  # noqa: F401
+
+    task = TaskDef(
+        task_id=1,
+        task="say hi",
+        agent_id="fake_agent",
+        failure_modes={"quantitative": ["correctness"]},
+        validators=[
+            {"name": "judge:rubric", "kwargs": {"rubric": "Does the trace say hi?"}, "failure_mode": "correctness"}
+        ],
+    )
+
+    output_dir = tmp_path / "logs" / "results"
+    run_task(task, conf, output_dir, mp.Queue())
+
+    check = json.loads((output_dir / "001.jsonl").read_text().strip())["check_results"][0]
+
+    assert check["passed"] is True
+    assert check["metadata"]["judge_model"] == "majority of judge-a, judge-b, judge-c"
+    assert check["metadata"]["tie"] is False
+    assert [(vote["judge_model"], vote["passed"]) for vote in check["metadata"]["votes"]] == [
+        ("judge-a", True),
+        ("judge-b", True),
+        ("judge-c", False),
+    ]
+    assert check["justification"].startswith("2 of 3 judges passed.")
+
+
 def test_full_pipeline(tmp_path, monkeypatch):
     setup_basics(tmp_path, monkeypatch)
     monkeypatch.setenv("ENABLE_TEST_FAKES", "1")

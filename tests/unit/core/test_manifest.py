@@ -174,6 +174,37 @@ def test_judge_fingerprint_pins_the_prompt_template(tmp_path, monkeypatch):
     assert fingerprint["extra_kwargs"] == {}
 
 
+def test_a_panel_is_recorded_judge_by_judge(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_KEY", "x")
+    monkeypatch.setenv("JUDGE_KEY", "judge-secret-value")
+    task_file = _task_file(tmp_path)
+    panel = [_judge("judge-a"), _judge("judge-b"), _judge("judge-c")]
+
+    fingerprint = build_run_signature(_conf(tmp_path, task_file, judges=panel), _tasks())["judge"]
+    reordered = build_run_signature(_conf(tmp_path, task_file, judges=panel[::-1]), _tasks())["judge"]
+    manifest = _make_manifest(tmp_path, _conf(tmp_path, task_file, judges=panel), _tasks())
+
+    assert [judge["model_id"] for judge in fingerprint["panel"]] == ["judge-a", "judge-b", "judge-c"]
+    assert fingerprint["aggregation"] == "majority"
+    assert fingerprint["retries"] == 1
+    assert fingerprint["prompt_sha256"] == judge_template_sha256()
+    assert fingerprint != reordered
+    assert manifest["judge"] == fingerprint
+    assert "judge-secret-value" not in canonical_json(manifest)
+    assert "JUDGE_KEY" not in canonical_json(manifest)
+
+
+def test_a_judges_list_of_one_is_recorded_like_a_single_judge(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_KEY", "x")
+    monkeypatch.setenv("JUDGE_KEY", "x")
+    task_file = _task_file(tmp_path)
+
+    single = build_run_signature(_conf(tmp_path, task_file, judge=_judge("judge-one")), _tasks())
+    listed = build_run_signature(_conf(tmp_path, task_file, judges=[_judge("judge-one")]), _tasks())
+
+    assert listed == single  # so a run resumes when its one judge moves into a list
+
+
 def test_manifest_pins_the_judge_without_leaking_its_key(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_KEY", "x")
     monkeypatch.setenv("JUDGE_KEY", "judge-secret-value")
