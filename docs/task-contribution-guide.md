@@ -212,6 +212,8 @@ If your task needs more, such as the statistics or cosmology tools in [tools.md]
 
 ## Before you submit
 
+Your AI assistant can go through this list with you: give it the [task-check skill](https://github.com/caisa-lab/SciFlawBench/blob/main/skills/sciflawbench-task-check/SKILL.md) and your draft.
+
 - [ ] **Required:** the agent has to use at least one tool to solve the task, for example to read a file you upload or to search the web or arXiv.
 - [ ] **Required:** it is a real problem from your field, not trivia.
 - [ ] **Required:** everything needed is in the description.
@@ -245,7 +247,7 @@ Any field broadly related to STEM, with physics preferred. Literature synthesis 
 As many as you like. Three accepted tasks make you a co-author.
 
 **Can I use AI to help write a task?**
-Yes. We provide a `skill.md` file you can give your AI assistant, so it can help you design the task and cross-check it. You must still check the answer and the failure modes yourself.
+Yes. Give your AI assistant our [task-check skill](https://github.com/caisa-lab/SciFlawBench/blob/main/skills/sciflawbench-task-check/SKILL.md) ([download](https://raw.githubusercontent.com/caisa-lab/SciFlawBench/main/skills/sciflawbench-task-check/SKILL.md)) along with your draft. It checks the draft against the form's format and the review rules, and suggests fixes you can paste into the form. You must still check the answer and the failure modes yourself.
 
 **Where can I read more?**
 [failure-modes.md](failure-modes.md) for every failure mode, [tools.md](tools.md) for the agent's tools, and [task-authoring.md](task-authoring.md) for the full rules and the task file format.
