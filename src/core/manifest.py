@@ -11,6 +11,7 @@ from core.config import JudgeConfig, RunConfig
 from core.task_ids import find_repo_root
 from evaluation.code_safety import rules_fingerprint
 from evaluation.judge import PANEL_RETRIES, JudgePanel, judge_template_sha256
+from tools.definitions import resolved_web_search
 
 MANIFEST_FILENAME = "run_manifest.json"
 MANIFEST_SHA_FILENAME = "run_manifest.sha256"
@@ -184,7 +185,7 @@ def build_run_signature(conf: RunConfig, tasks: list[Any]) -> dict[str, Any]:
         model["max_tokens_param"] = conf.model.max_tokens_param
     if conf.model.supports_stop is not None:
         model["supports_stop"] = conf.model.supports_stop
-    return {
+    signature = {
         "task_set_sha256": hash_rows(tasks),
         "n_tasks": len(tasks),
         "task_file_sha256": hash_file(conf.task_file),
@@ -203,6 +204,13 @@ def build_run_signature(conf: RunConfig, tasks: list[Any]) -> dict[str, Any]:
         "repetitions_per_task": conf.repetitions_per_task,
         "task_timeout_s": conf.task_timeout_s,
     }
+    # The web search in use depends on the API keys set, not only on the config. It is recorded unless it is
+    # DuckDuckGo alone, the default before Tavily was, so a checkpoint written before still resumes while it would
+    # search the same way.
+    search = resolved_web_search(conf.tool_configs, conf.closed_book)
+    if search is not None and search != {"engine": "duckduckgo", "backup": None}:
+        signature["web_search"] = search
+    return signature
 
 
 # Manifest construction, persistence and validation.
@@ -225,6 +233,7 @@ def build_run_manifest(*, conf: RunConfig, tasks: list[Any], run_signature: dict
         "model": run_signature["model"],
         "judge": run_signature["judge"],
         "tools": run_signature["tools"],
+        "web_search": resolved_web_search(conf.tool_configs, conf.closed_book),
         "prompts": {"dir": str(PROMPTS_DIR), "sha256": run_signature["prompts_sha256"]},
         "code_safety": {"rules_sha256": run_signature["code_safety_rules"]},
         "budget": {

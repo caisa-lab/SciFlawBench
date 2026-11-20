@@ -205,6 +205,26 @@ def test_a_judges_list_of_one_is_recorded_like_a_single_judge(tmp_path, monkeypa
     assert listed == single  # so a run resumes when its one judge moves into a list
 
 
+def test_the_web_search_is_recorded_unless_it_is_duckduckgo_alone(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_KEY", "x")
+    monkeypatch.delenv("SERPAPI_KEY", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    task_file = _task_file(tmp_path)
+
+    assert "web_search" not in build_run_signature(_conf(tmp_path, task_file), _tasks())  # as before: old runs resume
+
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-secret-key")
+    conf = _conf(tmp_path, task_file)
+    manifest = _make_manifest(tmp_path, conf, _tasks())
+    assert build_run_signature(conf, _tasks())["web_search"] == {"engine": "tavily", "backup": "duckduckgo"}
+    assert manifest["web_search"] == {"engine": "tavily", "backup": "duckduckgo"}
+    assert "tvly-secret-key" not in canonical_json(manifest)
+
+    closed = _conf(tmp_path, task_file, closed_book=True)
+    assert "web_search" not in build_run_signature(closed, _tasks())
+    assert _make_manifest(tmp_path, closed, _tasks())["web_search"] is None
+
+
 def test_manifest_pins_the_judge_without_leaking_its_key(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_KEY", "x")
     monkeypatch.setenv("JUDGE_KEY", "judge-secret-value")

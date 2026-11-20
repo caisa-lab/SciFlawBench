@@ -1,5 +1,7 @@
 import logging
 import os
+from collections.abc import Iterable
+from typing import Any
 
 from core.registry import Registry
 from tools.base import WrappedTool
@@ -9,6 +11,7 @@ from tools.misc import CalculatorTool, CurrentTimeTool, JsonFinalAnswerTool
 from tools.numerics import NumericsTool
 from tools.searchtools import (
     ArxivSearchTool,
+    FallbackSearchTool,
     ImprovedWikipediaSearchTool,
     RetryingDuckDuckGoSearchTool,
     SerpAPISearchTool,
@@ -41,45 +44,80 @@ def make_read_file_tool(watcher, max_rows: int = DEFAULT_MAX_ROWS, max_chars: in
     return WrappedTool(wrapped_tool=ReadFileTool(max_rows=max_rows, max_chars=max_chars), watcher=watcher)
 
 
+#: The search engine of `web_search` when a config names none.
+DEFAULT_SEARCH_ENGINE = "tavily"
+
+
 @tool_registry.register("web_search")
 def make_web_search_tool(
     watcher,
     max_results: int = 8,
     rate_limit: float = 1.0,
-    engine: str = "duckduckgo",
+    engine: str = DEFAULT_SEARCH_ENGINE,
     attempts: int = 4,
     retry_wait_s: float | list[float] = (5.0, 15.0, 30.0),
     min_interval_s: float = 2.0,
     blocked_urls: list[str] | tuple[str, ...] = TavilySearchTool.BLOCKED_URLS,
+    fallback: bool = True,
 ) -> WrappedTool:
-    # The DuckDuckGo search fails often at random, more so when several agents search at once (issues #59, #60), so
-    # all agents keep one pace (`min_interval_s`) and a failed search is tried again, with growing waits (`attempts`,
-    # `retry_wait_s`), before the agent sees an error. The Tavily search (`engine="tavily"`, issue #66) uses an API key
-    # instead; it tries rate limits, server errors and timeouts again the same way and drops results whose URL
-    # contains one of `blocked_urls`. `blocked_urls` applies to Tavily only, `min_interval_s` to DuckDuckGo only.
+    # Tavily (issue #66) is the default: it uses an API key instead of scraping search engines, which block the
+    # DuckDuckGo search often, more so when several agents search at once (issues #59, #60). With `fallback` on,
+    # DuckDuckGo is the backup: it answers a query whose Tavily search fails, the rest of the run once Tavily refuses
+    # the key or its credits are used up, and every query when TAVILY_API_KEY is not set. Both searches try a failed
+    # search again (`attempts`, `retry_wait_s`) and drop results whose URL contains one of `blocked_urls`; DuckDuckGo
+    # searches of all agents keep one pace (`min_interval_s`).
+    def duckduckgo() -> RetryingDuckDuckGoSearchTool:
+        return RetryingDuckDuckGoSearchTool(
+            max_results,
+            rate_limit,
+            attempts=attempts,
+            retry_wait_s=retry_wait_s,
+            min_interval_s=min_interval_s,
+            blocked_urls=blocked_urls,
+        )
+
     if engine == "tavily":
         key = os.environ.get("TAVILY_API_KEY")
-        if not key:
-            raise ValueError("web_search with engine 'tavily' needs the TAVILY_API_KEY environment variable")
-        search = TavilySearchTool(
-            key, max_results, rate_limit, attempts=attempts, retry_wait_s=retry_wait_s, blocked_urls=blocked_urls
-        )
-        return WrappedTool(wrapped_tool=search, watcher=watcher)
+        if key:
+            tavily = TavilySearchTool(
+                key, max_results, rate_limit, attempts=attempts, retry_wait_s=retry_wait_s, blocked_urls=blocked_urls
+            )
+            search = FallbackSearchTool(tavily, duckduckgo()) if fallback else tavily
+            return WrappedTool(wrapped_tool=search, watcher=watcher)
+        if not fallback:
+            raise ValueError(
+                "web_search with engine 'tavily' and no fallback needs the TAVILY_API_KEY environment variable"
+            )
+        logger.warning("TAVILY_API_KEY is not set, so web_search uses DuckDuckGo")
+        return WrappedTool(wrapped_tool=duckduckgo(), watcher=watcher)
 
     if os.environ.get("SERPAPI_KEY", None) is not None and engine != "duckduckgo":
         key = os.environ["SERPAPI_KEY"]
         kwargs = {"max_results": 8, "rate_limit": 1.0, "engine": engine, "api_key": key}
         return WrappedTool(wrapped_tool=SerpAPISearchTool(**kwargs), watcher=watcher)
 
-    logger.info(
-        "web_search tool created with DuckDuckGo search, which has worse results than engines accessible via \
-                serpapi "
-    )
+    return WrappedTool(wrapped_tool=duckduckgo(), watcher=watcher)
 
-    search = RetryingDuckDuckGoSearchTool(
-        max_results, rate_limit, attempts=attempts, retry_wait_s=retry_wait_s, min_interval_s=min_interval_s
-    )
-    return WrappedTool(wrapped_tool=search, watcher=watcher)
+
+def resolved_web_search(tool_configs: Iterable[Any], closed_book: bool = False) -> dict[str, Any] | None:
+    """
+    Which search `web_search` will use in a run: its engine and backup, as `make_web_search_tool` chooses them.
+
+    It depends on the config and on which API keys are set, so it is recorded in the run signature: a run resumed
+    with a different key setup could otherwise switch engines without notice. None for a closed-book run.
+    """
+    if closed_book:
+        return None
+    options = next((tool.kwargs for tool in tool_configs if tool.tool_name == "web_search"), {})
+    engine = options.get("engine", DEFAULT_SEARCH_ENGINE)
+    fallback = options.get("fallback", True)
+    if engine == "tavily":
+        if os.environ.get("TAVILY_API_KEY"):
+            return {"engine": "tavily", "backup": "duckduckgo" if fallback else None}
+        return {"engine": "duckduckgo" if fallback else "tavily", "backup": None}
+    if engine != "duckduckgo" and os.environ.get("SERPAPI_KEY") is not None:
+        return {"engine": f"serpapi:{engine}", "backup": None}
+    return {"engine": "duckduckgo", "backup": None}
 
 
 @tool_registry.register("wikipedia_search")

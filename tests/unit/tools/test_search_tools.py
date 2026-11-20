@@ -7,9 +7,11 @@ from pathlib import Path
 import pytest
 import requests
 
-from tools.definitions import tool_registry
+from tools.base import ToolDef
+from tools.definitions import resolved_web_search, tool_registry
 from tools.searchtools import (
     ArxivSearchTool,
+    FallbackSearchTool,
     ImprovedWikipediaSearchTool,
     RetryingDuckDuckGoSearchTool,
     SerpAPISearchTool,
@@ -362,6 +364,7 @@ def test_web_search_needs_at_least_one_attempt():
 
 def test_web_search_options_reach_the_tool(monkeypatch):
     monkeypatch.delenv("SERPAPI_KEY", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     wrapped = tool_registry.get("web_search")(watcher=None, attempts=5, retry_wait_s=0.5, min_interval_s=1.0)
     assert isinstance(wrapped._wrapped, RetryingDuckDuckGoSearchTool)
     assert (wrapped._wrapped.attempts, wrapped._wrapped.retry_waits_s, wrapped._wrapped.min_interval_s) == (
@@ -540,9 +543,10 @@ def test_tavily_search_raises_the_last_error_when_every_try_fails(monkeypatch):
 @pytest.mark.parametrize("status_code", [400, 401, 432, 433])
 def test_tavily_search_fails_at_once_when_tavily_refuses_it(monkeypatch, status_code):
     tool, requests_made, _ = _offline_tavily(monkeypatch, _FakeTavilyReply(status_code=status_code, detail="refused"))
-    with pytest.raises(TavilySearchError, match=f"HTTP {status_code}: .*refused"):
+    with pytest.raises(TavilySearchError, match=f"HTTP {status_code}: .*refused") as error:
         tool.forward("GW190521 masses")
     assert len(requests_made) == 1
+    assert error.value.status == status_code
 
 
 def test_tavily_search_errors_never_show_the_key(monkeypatch):
@@ -550,6 +554,7 @@ def test_tavily_search_errors_never_show_the_key(monkeypatch):
     with pytest.raises(TavilySearchError) as error:
         tool.forward("GW190521 masses")
     assert "tvly-test-key" not in str(error.value)
+    assert error.value.status is None  # no reply to take a status from
 
 
 def test_tavily_search_needs_a_key_and_an_attempt():
@@ -559,22 +564,126 @@ def test_tavily_search_needs_a_key_and_an_attempt():
         TavilySearchTool("tvly-test-key", attempts=0)
 
 
-def test_web_search_uses_tavily_when_asked(monkeypatch):
+def test_web_search_uses_tavily_with_duckduckgo_as_its_backup_by_default(monkeypatch):
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
     monkeypatch.setenv("SERPAPI_KEY", "serp-test-key")  # Tavily is chosen even when a SerpAPI key is set
-    wrapped = tool_registry.get("web_search")(
-        watcher=None, engine="tavily", max_results=5, attempts=2, retry_wait_s=[1.0], blocked_urls=["example.org"]
+    tool = tool_registry.get("web_search")(
+        watcher=None, max_results=5, attempts=2, retry_wait_s=[1.0], blocked_urls=["example.org"]
+    )._wrapped
+    assert isinstance(tool, FallbackSearchTool)
+    tavily, backup = tool.primary, tool.backup
+    assert isinstance(tavily, TavilySearchTool) and isinstance(backup, RetryingDuckDuckGoSearchTool)
+    assert (tavily.max_results, tavily.attempts, tavily.retry_waits_s, tavily.blocked_urls) == (
+        5,
+        2,
+        [1.0],
+        ["example.org"],
     )
-    tool = wrapped._wrapped
-    assert isinstance(tool, TavilySearchTool)
-    assert (tool.max_results, tool.attempts, tool.retry_waits_s, tool.blocked_urls) == (5, 2, [1.0], ["example.org"])
-    assert tool_registry.get("web_search")(watcher=None, engine="tavily")._wrapped.blocked_urls == ["sciflawbench"]
+    assert (backup.max_results, backup.attempts, backup.blocked_urls) == (5, 2, ["example.org"])
+    assert tool_registry.get("web_search")(watcher=None)._wrapped.primary.blocked_urls == ["sciflawbench"]
+    assert isinstance(tool_registry.get("web_search")(watcher=None, fallback=False)._wrapped, TavilySearchTool)
 
 
-def test_web_search_with_tavily_needs_its_key(monkeypatch):
+def test_web_search_without_a_tavily_key_uses_duckduckgo(monkeypatch):
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("SERPAPI_KEY", raising=False)
+    tool = tool_registry.get("web_search")(watcher=None)._wrapped
+    assert isinstance(tool, RetryingDuckDuckGoSearchTool) and tool.blocked_urls == ["sciflawbench"]
     with pytest.raises(ValueError, match="TAVILY_API_KEY"):
-        tool_registry.get("web_search")(watcher=None, engine="tavily")
+        tool_registry.get("web_search")(watcher=None, fallback=False)
+
+
+def test_web_search_can_use_duckduckgo_alone(monkeypatch):
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
+    tool = tool_registry.get("web_search")(watcher=None, engine="duckduckgo")._wrapped
+    assert isinstance(tool, RetryingDuckDuckGoSearchTool)
+
+
+class _StubSearch:
+    """A search that returns or raises the given outcomes in turn and records its queries."""
+
+    def __init__(self, *outcomes):
+        self.outcomes, self.queries = list(outcomes), []
+
+    def forward(self, query):
+        self.queries.append(query)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def test_tavily_results_are_returned_unchanged():
+    tavily, duckduckgo = _StubSearch("## Search Results\n\ntavily"), _StubSearch()
+    assert FallbackSearchTool(tavily, duckduckgo).forward("q") == "## Search Results\n\ntavily"
+    assert duckduckgo.queries == []
+
+
+def test_a_failed_tavily_search_is_answered_by_duckduckgo():
+    failure = TavilySearchError("Tavily search failed with HTTP 503: busy", status=503)
+    tavily, duckduckgo = _StubSearch(failure, "tavily results"), _StubSearch("duckduckgo results")
+    tool = FallbackSearchTool(tavily, duckduckgo)
+
+    assert tool.forward("q1") == (
+        "_The Tavily search failed (Tavily search failed with HTTP 503: busy); these results are from DuckDuckGo._"
+        "\n\nduckduckgo results"
+    )
+    assert tool.forward("q2") == "tavily results"  # a passing failure: the next query asks Tavily again
+    assert tavily.queries == ["q1", "q2"] and duckduckgo.queries == ["q1"]
+
+
+@pytest.mark.parametrize("status", [401, 403, 432, 433])
+def test_once_tavily_refuses_the_key_or_its_credits_duckduckgo_answers_the_rest(status):
+    tavily, duckduckgo = _StubSearch(TavilySearchError(f"HTTP {status}", status=status)), _StubSearch("r1", "r2")
+    tool = FallbackSearchTool(tavily, duckduckgo)
+
+    tool.forward("q1")
+    second = tool.forward("q2")
+
+    assert second == f"_The Tavily search failed (HTTP {status}); these results are from DuckDuckGo._\n\nr2"
+    assert tavily.queries == ["q1"]
+
+
+def test_any_error_of_tavily_sends_the_query_to_duckduckgo():
+    tool = FallbackSearchTool(_StubSearch(ValueError("bad JSON")), _StubSearch("r1"))
+    assert tool.forward("q").endswith("\n\nr1")
+
+
+def test_an_error_of_the_backup_reaches_the_agent():
+    tool = FallbackSearchTool(_StubSearch(TavilySearchError("timeout")), _StubSearch(RuntimeError("No results found.")))
+    with pytest.raises(RuntimeError, match="No results found"):
+        tool.forward("q")
+
+
+def test_duckduckgo_search_drops_results_from_the_benchmark_itself(monkeypatch):
+    tool, _ = _flaky_search(monkeypatch, fails=0)
+    leak = {"title": "tasks", "href": "https://github.com/caisa-lab/SciFlawBench/blob/main/tasks.jsonl", "body": "x"}
+    page = {"title": "GW190521", "href": "https://example.org/gw190521", "body": "A heavy black-hole merger."}
+    monkeypatch.setattr(tool.ddgs, "text", lambda query, max_results: [leak, page])
+    res = tool.forward("GW190521")
+    assert "example.org/gw190521" in res and "SciFlawBench" not in res
+    monkeypatch.setattr(tool.ddgs, "text", lambda query, max_results: [leak])
+    assert tool.forward("GW190521").startswith("No results found")
+
+
+@pytest.mark.parametrize(
+    ("options", "tavily_key", "expected"),
+    [
+        ({}, True, {"engine": "tavily", "backup": "duckduckgo"}),
+        ({}, False, {"engine": "duckduckgo", "backup": None}),
+        ({"fallback": False}, True, {"engine": "tavily", "backup": None}),
+        ({"fallback": False}, False, {"engine": "tavily", "backup": None}),
+        ({"engine": "duckduckgo"}, True, {"engine": "duckduckgo", "backup": None}),
+    ],
+)
+def test_the_search_a_run_uses_is_resolved_from_the_config_and_the_keys(monkeypatch, options, tavily_key, expected):
+    monkeypatch.delenv("SERPAPI_KEY", raising=False)
+    if tavily_key:
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-test-key")
+    else:
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    assert resolved_web_search([ToolDef(tool_name="web_search", kwargs=options)]) == expected
+    assert resolved_web_search([], closed_book=True) is None
 
 
 @pytest.mark.live
